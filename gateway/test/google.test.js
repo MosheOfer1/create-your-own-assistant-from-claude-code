@@ -67,12 +67,21 @@ test('userClaudeDirty: a clean ~/.claude passes; CLAUDE.md, skills, hooks or all
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ model: 'sonnet' }));
     fs.mkdirSync(path.join(dir, 'skills'));
     assert.equal(userClaudeDirty(dir), null); // an empty skills folder is fine
+    // What Claude makes by itself at login: empty folders and a hidden bucket marker.
+    fs.mkdirSync(path.join(dir, 'plugins', 'synced', 'acct', 'x'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'plugins', 'synced', '.bucket-acct'), '');
+    assert.equal(userClaudeDirty(dir), null);
+    fs.writeFileSync(path.join(dir, 'plugins', 'synced', 'acct', 'x', 'plugin.json'), '{}');
+    assert.match(userClaudeDirty(dir), /plugins/); // a real plugin is not
+    fs.rmSync(path.join(dir, 'plugins'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(*)'] } }));
     assert.match(userClaudeDirty(dir), /settings/);
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ hooks: {} }));
     assert.match(userClaudeDirty(dir), /settings/);
     fs.rmSync(path.join(dir, 'settings.json'));
     fs.mkdirSync(path.join(dir, 'skills', 'x'));
+    assert.equal(userClaudeDirty(dir), null); // an empty folder is still nothing
+    fs.writeFileSync(path.join(dir, 'skills', 'x', 'SKILL.md'), '# x');
     assert.match(userClaudeDirty(dir), /skills/);
     fs.rmSync(path.join(dir, 'skills'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'hi');
