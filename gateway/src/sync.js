@@ -10,7 +10,10 @@ const run = promisify(execFile);
 // Nothing reaches in from outside: no timer, no inbound ssh, no key in GitHub.
 // Returns 'restart' when config.json or the code version changed (the caller restarts the
 // gateway), else 'none'. Reminders and everything set in the chat do not depend on this.
-export function makeSync({ base, app, minGapMs = 60_000, now = Date.now, exec = run, log = console.log }) {
+// ownUser: the gateway runs as its own user and its code is root's (bin/own-user.js). It cannot
+// check out a new version itself: it writes data/update-request.json and root's
+// assistant-update.path does the update and the restart.
+export function makeSync({ base, app, minGapMs = 60_000, now = Date.now, exec = run, log = console.log, ownUser = false }) {
   const repo = path.join(base, 'repo');
   let last = -Infinity; // a failed pull also counts: offline, it is tried again after minGapMs
   let busy = null;
@@ -31,7 +34,12 @@ export function makeSync({ base, app, minGapMs = 60_000, now = Date.now, exec = 
       if (!/^\w[\w./-]*$/.test(want)) throw new Error(`config.json version is not a tag: ${want}`);
       await git(app, 'fetch', '-q', '--tags', 'origin');
       const target = await git(app, 'rev-parse', `${want}^{commit}`).catch(() => git(app, 'rev-parse', `origin/${want}^{commit}`));
-      if (target !== await git(app, 'rev-parse', 'HEAD')) {
+      const differs = target !== await git(app, 'rev-parse', 'HEAD');
+      if (differs && ownUser) {
+        const req = path.join(base, 'data', 'update-request.json');
+        const asked = fs.existsSync(req) && JSON.parse(fs.readFileSync(req, 'utf8')).version === want;
+        if (!asked) { fs.writeFileSync(req, JSON.stringify({ version: want, at: now() })); log(`sync: asked root for ${want}`); }
+      } else if (differs) {
         await git(app, 'checkout', '-q', target);
         await exec('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: path.join(app, 'gateway'), timeout: 10 * 60_000 });
         log(`sync: code → ${want}`);

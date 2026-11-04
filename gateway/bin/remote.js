@@ -17,6 +17,7 @@ const USAGE = `Usage: remote.js COMMAND USER@HOST [--key FILE] [--version TAG] [
   install   Node ${NODE} (if older), the public repo at --version, npm ci, Chromium, the private repo
             (--repo, via a deploy key made on the machine), config and secrets, the service
   login     prints the one command the user runs to log Claude in on the machine (interactive)
+  own-user  prints the one command that moves the assistant to its own user there (sudo, interactive)
   logs [N]  the service's last log lines`;
 
 const opt = (rest, k) => (rest.includes(`--${k}`) ? rest[rest.indexOf(`--${k}`) + 1] : undefined);
@@ -97,6 +98,8 @@ export function main([cmd, host, ...rest]) {
     return [...Object.entries(r.facts).map(([k, v]) => `${k}: ${v}`), ...r.problems.map((p) => `PROBLEM: ${p}`), ...r.notes.map((n) => `note: ${n}`), r.ok ? 'ok' : 'not ok'].join('\n');
   }
   if (cmd === 'login') return `ssh -t ${key ? `-i ${key} ` : ''}${host} '~/.local/bin/claude /login || claude /login'`;
+  // Interactive (sudo asks for the password on the machine): the user types it, once.
+  if (cmd === 'own-user') return `ssh -t ${key ? `-i ${key} ` : ''}${host} 'N=$(command -v node || echo ~/.local/opt/node22/bin/node); sudo "$N" ~/.assistant/app/gateway/bin/own-user.js install'`;
   if (cmd === 'logs') return remote(host, key, `journalctl --user -u assistant.service -n ${Number(rest[0]) || 50} --no-pager`);
   if (cmd === 'install') {
     const repo = opt(rest, 'repo');

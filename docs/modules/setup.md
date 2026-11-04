@@ -56,3 +56,21 @@ All four names above. They live in `data/.env` only.
 - On Ubuntu with restricted user namespaces, Chromium may need `--no-sandbox`.
 - Only systemd (Linux) and launchd (macOS) are supported. On Windows, use WSL2 with systemd.
 - Not yet tried on clean machines. See [live checks](../live-checks.md).
+
+## Own user (`own-user.js`, Linux and WSL2)
+
+Run once with sudo: `sudo "$(command -v node)" ~/.assistant/app/gateway/bin/own-user.js install`.
+
+- A system user `assistant`: no password, no login shell, no sudo, no admin group.
+- The code goes to `/opt/assistant/app`, owned by root. The assistant can read it, never change it.
+- Its config, private repo, data and folder are a copy of yours in `/home/assistant/.assistant`.
+  Your own `~/.assistant` stays as a backup. Your user service stops (one gateway at a time).
+- `assistant.service` hides all other homes (`ProtectHome=tmpfs`), keeps the system read-only
+  (`ProtectSystem=strict`), and caps memory. Because of this, plain shell commands run without asking
+  (`freeShell` is on); real changes and anything after outside text still ask.
+- Its clone of the private repo gets its own deploy key. Your GitHub login stays yours.
+- A new `version`: the assistant writes `data/update-request.json`; `assistant-update.path` (root)
+  checks out that tag, runs `npm ci` and restarts it. The assistant never runs sudo.
+- New secrets or logins later: `sudo … own-user.js sync-from-owner`. Safety check: `check`.
+  Back to your own user service: `uninstall` (the user and its data stay).
+- macOS: not supported; the assistant runs as your user with the guards in the code.

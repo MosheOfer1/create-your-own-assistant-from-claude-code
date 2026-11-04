@@ -21,3 +21,4 @@ Each line: what to check, and what it needs.
 | 7 | service.js install on Linux (systemd + linger) and macOS (launchd); survives reboot | A Linux user and a Mac |
 | 7 | remote.js check / install on a clean machine over ssh (Node to ~/.local/opt, deploy key) | A clean LXD container |
 | 8 | A push to the private repo is in effect from the next message (config change restarts; version change updates code) | Same |
+| 8 | own-user.js install on a clean Ubuntu 24.04 (user, /opt code, unit, deploy key, check all ok), then a version bump updates through the path unit | A clean LXD container + sudo |

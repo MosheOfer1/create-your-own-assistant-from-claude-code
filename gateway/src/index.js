@@ -33,7 +33,7 @@ const quit = async () => { await gw.stop(); process.exit(0); }; // systemd / lau
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, quit);
 
 // The private repo: pulled before a turn (at most once a minute) and once a day, never on a timer.
-const sync = makeSync({ base: BASE, app: path.dirname(ROOT) });
+const sync = makeSync({ base: BASE, app: path.dirname(ROOT), ownUser: config.ownUser });
 Object.assign(gw.router.hooks, { beforeTurn: () => sync(), restart: quit });
 setInterval(async () => {
   if (await sync({ force: true }) === 'restart' && !gw.router.current) await quit();
