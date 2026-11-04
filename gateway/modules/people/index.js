@@ -14,6 +14,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAX_FILE = 16 << 20; // WhatsApp's own limit for media is about 16 MB
 const digits = (s) => String(s ?? '').replace(/\D/g, '');
 const norm = (s) => String(s ?? '').toLowerCase().normalize('NFKC').replace(/[֑-ׇ]/g, '').trim(); // no Hebrew vowel marks
+const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', pdf: 'application/pdf',
+  mp4: 'video/mp4', mp3: 'audio/mpeg', ogg: 'audio/ogg', m4a: 'audio/mp4', txt: 'text/plain', csv: 'text/csv',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
+const mimeOf = (name) => MIME[String(name).split('.').pop().toLowerCase()] || 'application/octet-stream';
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 export const ticketKey = (i = {}, fileSum = null) => sha(JSON.stringify([digits(i.to), String(i.text ?? ''), fileSum]));
 
@@ -65,7 +69,7 @@ export default function people(config, { now = Date.now, log = console.log } = {
         const until = tickets.get(k);
         tickets.delete(k);
         if (!until || until < now()) throw new Error('this exact message was not approved by the owner');
-        await channel().sendTo(`+${digits(a.to)}`, String(a.text), file ? { file: { buffer: file.buffer, fileName: file.fileName } } : {});
+        await channel().sendTo(`+${digits(a.to)}`, String(a.text), file ? { file: { data: file.buffer, mimetype: mimeOf(file.fileName), fileName: file.fileName } } : {});
         return { ok: true, text: `sent to ${nameOf(a.to) || `+${digits(a.to)}`}` };
       }
       return { ok: false, error: `unknown action ${a.action}` };

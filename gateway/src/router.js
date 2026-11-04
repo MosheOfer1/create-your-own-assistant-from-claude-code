@@ -1,4 +1,4 @@
-import { describe, SHOW_MAX } from './approvals.js';
+import { describe, parseReply, SHOW_MAX } from './approvals.js';
 import { NEW, STOP, strings } from './i18n.js';
 import { pickModel, STICKY_MS } from './modelpick.js';
 import { quietUntil } from './quiet.js';
@@ -8,6 +8,7 @@ const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' &&
   ? Object.fromEntries(Object.keys(x).sort().map((key) => [key, x[key]])) : x));
 const GRANT_MS = 10 * 60_000; // a late yes may be used this long
 const RESUME_MS = 15 * 60_000; // a turn cut off by a restart runs again if this recent
+const LIVE_MS = 30 * 60_000; // a live location this recent goes with each turn
 const HELD_TURN_MS = 3 * 3600_000; // a turn held in quiet hours still runs if this recent
 const RESUMED = '[This turn was cut off by a restart.';
 
@@ -29,8 +30,9 @@ export class Router {
     approvals.onLate = (item, decision) => this.lateAnswer(item, decision);
   }
 
-  async send(text) {
-    return this.channel.send(text?.trim() ? text : this.t.empty);
+  // opts.approvalId marks an approval request (Telegram puts buttons on it).
+  async send(text, opts) {
+    return this.channel.send(text?.trim() ? text : this.t.empty, opts);
   }
 
   // --- what the assistant says on its own (a mail summary, the morning brief) ---
@@ -56,6 +58,14 @@ export class Router {
       if (h.send) this.send(h.send).catch(() => {});
       else if (this.now() - h.at < HELD_TURN_MS) this.enqueue(() => this.turn(h.turn));
     }
+  }
+
+  // The owner's live location, while they share it (the channel keeps it fresh for 30 minutes).
+  whereNow() {
+    const l = this.channel.lastLocation;
+    if (!l?.live || this.now() - l.at > LIVE_MS) return '';
+    const min = Math.round((this.now() - l.at) / 60_000);
+    return `[The owner's live location (${min} min ago): ${l.lat}, ${l.lon} — https://maps.google.com/?q=${l.lat},${l.lon}]`;
   }
 
   // --- sessions ---
@@ -109,6 +119,10 @@ export class Router {
     }
     const answered = this.approvals.answer(text);
     if (answered) return this.send((answered.decision === 'allow' ? this.t.allowed : this.t.denied)(answered.id));
+    // "yes 5" for a request that is no longer open (done, expired, a late button press): say so,
+    // never start a turn with it.
+    const late = parseReply(text);
+    if (late?.id != null) return this.send(this.t.notOpen(late.id));
     const low = text.toLowerCase();
     if (STOP.includes(low)) return this.stop();
     if (NEW.includes(low)) {
@@ -179,7 +193,7 @@ export class Router {
     // Kept until the turn ends: a restart in the middle finds it and carries on (resume).
     this.state.set('inflight', { text, at: this.now() });
     try {
-      const extra = (await Promise.resolve().then(() => this.hooks.context?.(text)).catch(() => '')) || '';
+      const extra = [(await Promise.resolve().then(() => this.hooks.context?.(text)).catch(() => '')) || '', this.whereNow()].filter(Boolean).join('\n\n');
       const onTool = (name, input) => { if (this.policy.untrusted(name, input)) this.markTainted(name); };
       const r = await this.agent.run({ prompt: [extra, text].filter(Boolean).join('\n\n'), sessionId: this.session(), model, signal: ctl.signal, onTool });
       this.state.set('lastTurnAt', this.now());
@@ -245,7 +259,7 @@ export class Router {
 
   async ask(request, what) {
     const { id, promise } = this.approvals.create(request);
-    await this.send(this.t.ask(id, what));
+    await this.send(this.t.ask(id, what), { approvalId: id });
     const r = await promise;
     if (r.reason !== 'parked') return r;
     const hours = Math.round(this.approvals.holdMs / 3600_000);

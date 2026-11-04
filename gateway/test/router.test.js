@@ -320,6 +320,27 @@ test('quiet hours: notify and proactive wait, then go out; a stale held turn is 
   assert.deepEqual(s.agent.calls.map((c) => c.prompt), ['hi', 'brief']);
 });
 
+test('"yes 7" for a request that is not open says so and starts no turn', async () => {
+  const s = setup();
+  await say(s, 'yes 7');
+  assert.deepEqual(s.channel.sent, ['Request #7 is no longer open.']);
+  assert.equal(s.agent.calls.length, 0);
+});
+
+test('a live location goes with each turn while it is fresh; an old or a fixed one does not', async () => {
+  let t = 10_000_000;
+  const s = setup({ now: () => t });
+  s.channel.lastLocation = { lat: 32.1, lon: 34.8, at: t - 3 * 60_000, live: true };
+  await say(s, 'where is the nearest pharmacy?');
+  assert.match(s.agent.calls[0].prompt, /^\[The owner's live location \(3 min ago\): 32\.1, 34\.8 — https:\/\/maps\.google\.com\/\?q=32\.1,34\.8\]\n\nwhere/);
+  t += 40 * 60_000;
+  await say(s, 'and now?');
+  assert.equal(s.agent.calls[1].prompt, 'and now?');
+  s.channel.lastLocation = { lat: 1, lon: 2, at: t, live: false };
+  await say(s, 'x');
+  assert.equal(s.agent.calls[2].prompt, 'x');
+});
+
 test('any request too long to show in full is refused, never cut (M4)', async () => {
   const s = setup();
   for (const [tool_name, input] of [['Write', { file_path: '/x/f', content: 'y'.repeat(SHOW_MAX + 400) }], ['mcp__x__do', { a: 'y'.repeat(SHOW_MAX + 400) }]]) {

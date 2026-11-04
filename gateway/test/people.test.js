@@ -71,7 +71,8 @@ test('the prompt shows the person, the number, the whole text and the file; a ch
   assert.equal((await mod.api({ action: 'send', ...msg })).ok, false);
   approve(mod, msg);
   assert.equal((await mod.api({ action: 'send', ...msg })).ok, true);
-  assert.equal(String(sent[0].file.buffer), 'img2');
+  assert.equal(String(sent[0].file.data), 'img2');
+  assert.equal(sent[0].file.mimetype, 'image/jpeg');
   assert.match(mod.describers[0]('mcp__people__send', { ...msg, file: '/etc/passwd' }), /📎 ⚠️ .*own folder/);
   assert.equal(mod.describers[0]('mcp__mail__send', msg), null);
 });
