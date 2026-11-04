@@ -29,6 +29,20 @@ export function moduleFile(name, { root = ROOT, repoDir = path.join(BASE, 'repo'
   return file;
 }
 
+// What in a ~/.claude would reach the agent once user settings load: null when nothing.
+export function userClaudeDirty(dir) {
+  const has = (f) => fs.existsSync(path.join(dir, f));
+  if (has('CLAUDE.md')) return 'a CLAUDE.md';
+  if (['skills', 'agents', 'commands', 'plugins', 'hooks'].some((d) => has(d) && fs.readdirSync(path.join(dir, d)).length)) return 'skills, agents, commands, plugins or hooks';
+  for (const f of ['settings.json', 'settings.local.json']) {
+    if (!has(f)) continue;
+    let s;
+    try { s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return `an unreadable ${f}`; }
+    if (s.hooks || s.permissions?.allow?.length || s.enabledPlugins || s.mcpServers || s.apiKeyHelper || s.env) return `settings in ${f}`;
+  }
+  return null;
+}
+
 export async function loadModules(config, ctx = {}) {
   const out = [];
   for (const [name, opts] of Object.entries(config.modules || {})) {
@@ -67,7 +81,13 @@ export async function createGateway({ config, channel, modules, agentFactory, lo
   const home = os.homedir();
   const deny = [...secretReadDeny({ root: config.root, home, dataDir: config.dataDir }), ...LOCAL_FETCH_DENY,
     ...(config.lockHost ? hostReadDeny({ root: config.root, home, agentCwd: config.agentCwd }) : [])];
-  const agentOpts = { config, mcpConfig, allowedTools: policy.allowed, disallowedTools: deny, promptExtra: modules.map((m) => m.prompt).filter(Boolean) };
+  // claude.ai connectors (the google module) need the user's own settings: only as its own user.
+  // And only while that ~/.claude stays clean: no CLAUDE.md, no allow rules, hooks or plugins.
+  const wants = config.ownUser && modules.some((m) => m.claudeAi);
+  const dirty = wants && userClaudeDirty(path.join(os.homedir(), '.claude'));
+  if (dirty) log(`google: connectors off: ~/.claude of this user has ${dirty}. Remove it to use them.`);
+  const claudeAi = wants && !dirty;
+  const agentOpts = { config, mcpConfig, allowedTools: policy.allowed, disallowedTools: deny, promptExtra: modules.map((m) => m.prompt).filter(Boolean), claudeAi };
   const agent = agentFactory ? agentFactory(agentOpts) : new Agent(agentOpts);
 
   const approvals = new Approvals({ timeoutMs: config.approvalTimeoutMin * 60_000, holdMs: config.approvalHoldHours * 3600_000, store: state });

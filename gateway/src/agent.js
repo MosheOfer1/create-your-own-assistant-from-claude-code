@@ -12,6 +12,10 @@ export const APPROVE_TOOL = 'mcp__approve__ask';
 // and show the owner's private notes to the agent. Everything the agent needs comes as flags.
 // The login is not a setting: it is still read.
 const ISOLATE = ['--setting-sources', ''];
+// The claude.ai connectors (Gmail, Calendar, Drive) load only with the user's settings and
+// without --strict-mcp-config. Only for a gateway that runs as its own user: its ~/.claude is
+// its own (bin/own-user.js copies the login, nothing else) and the agent cannot write there.
+const WITH_CONNECTORS = ['--setting-sources', 'user'];
 
 // What Claude and every command it runs may see of the environment: what the CLI needs,
 // never the gateway's own secrets (channel tokens, mail passwords).
@@ -62,8 +66,9 @@ export function toolsIn(j) {
 // Runs agent turns. The main conversation goes to one warm process (a turn = one stdin line);
 // one-offs (readOnly, plain) start their own process.
 export class Agent {
-  constructor({ config, mcpConfig, allowedTools, disallowedTools = [], promptExtra = [], spawnFn = spawn }) {
+  constructor({ config, mcpConfig, allowedTools, disallowedTools = [], promptExtra = [], claudeAi = false, spawnFn = spawn }) {
     Object.assign(this, { config, mcpConfig, allowedTools, disallowedTools, promptExtra, spawnFn });
+    this.claudeAi = !!(claudeAi && config.ownUser);
     // No auto-memory either: it lives in ~/.claude/projects and is loaded outside the approvals.
     // The brain module is the assistant's memory.
     this.env = agentEnv(process.env, { MCP_TOOL_TIMEOUT: String((config.approvalTimeoutMin + 1) * 60_000), CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
@@ -72,13 +77,13 @@ export class Agent {
 
   args({ model, readOnly = false } = {}) {
     return [
-      ...ISOLATE,
+      ...(this.claudeAi ? WITH_CONNECTORS : ISOLATE),
       '--model', model || this.config.model,
       '--tools', (this.config.tools || ['default']).join(','),
       // A module's prompt may be a function (the brain's core facts): read each turn. When it
       // changes, the arguments change and the warm process restarts with the new prompt.
       '--append-system-prompt', systemPrompt(this.config, this.promptExtra.map((p) => (typeof p === 'function' ? p() : p)).filter(Boolean)),
-      '--mcp-config', this.mcpConfig, '--strict-mcp-config',
+      '--mcp-config', this.mcpConfig, ...(this.claudeAi ? [] : ['--strict-mcp-config']),
       ...(readOnly ? ['--permission-prompts', 'none'] : ['--permission-prompt-tool', APPROVE_TOOL]),
       '--allowedTools', ...this.allowedTools,
       ...(this.disallowedTools.length ? ['--disallowedTools', ...this.disallowedTools] : []),
