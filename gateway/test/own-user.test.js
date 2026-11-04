@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, afterEach, before, describe, test } from 'node:test';
-import { APP, BOT_BASE, BOT_HOME, REQUEST, applyUpdate, giveBot, main, newer, noLink, publicKey, rehome, rollback, unitText, updateUnits } from '../bin/own-user.js';
+import { APP, BOT_BASE, BOT_HOME, REQUEST, applyUpdate, trustKey, giveBot, main, newer, noLink, publicKey, rehome, rollback, unitText, updateUnits } from '../bin/own-user.js';
 
 let tmp;
 let n = 0;
@@ -192,6 +192,24 @@ describe('applyUpdate()', () => {
     };
     return { dir, request, calls, run, opts: { run, request, top: dir } };
   }
+
+  test('with a trusted release key: the tag is verified first; an unsigned tag is refused before any checkout', () => {
+    const signers = path.join(tmp, `signers${++n}`);
+    const pub = path.join(tmp, `k${n}.pub`);
+    fs.writeFileSync(pub, `ssh-ed25519 ${'A'.repeat(68)} release@pc\n`);
+    assert.match(trustKey(pub, { signers }), /trusted/);
+    assert.match(fs.readFileSync(signers, 'utf8'), /^release namespaces="git" ssh-ed25519 A{68}\n$/);
+    const good = setup({ body: { version: 'v1.4.0' }, merged: 'v1.3.0\n' });
+    assert.equal(applyUpdate({ ...good.opts, signers }), 'updated to v1.4.0');
+    const v = good.calls.findIndex((c) => c.args.includes('verify-tag'));
+    assert.ok(v >= 0 && v < good.calls.findIndex((c) => c.args.includes('checkout')));
+    assert.ok(good.calls[v].args.includes(`gpg.ssh.allowedSignersFile=${signers}`));
+    const bad = setup({ body: { version: 'v1.4.0' }, merged: 'v1.3.0\n' });
+    const run = (cmd, args, o) => { if (args.includes('verify-tag')) throw new Error('no signature'); return bad.run(cmd, args, o); };
+    assert.throws(() => applyUpdate({ ...bad.opts, run, signers }), /not signed by a trusted release key/);
+    assert.ok(!bad.calls.some((c) => c.args.includes('checkout')));
+    assert.throws(() => trustKey(signers, { signers: path.join(tmp, 'x') }), /not an ssh public key/);
+  });
 
   test('no request file: "no request" and nothing is run', () => {
     const s = setup();

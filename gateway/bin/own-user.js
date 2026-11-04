@@ -25,12 +25,19 @@ export const REQUEST = `${BOT_BASE}/data/update-request.json`;
 // The only versions root installs: release tags. A branch or a commit could be anything.
 const RELEASE = /^v(\d+)\.(\d+)\.(\d+)$/;
 
+// Release signatures. Once SIGNERS exists, root installs only a tag signed by a key listed there
+// (git's ssh signatures). The check runs in the code already installed, before the checkout, so a
+// pushed tag alone, without the release key, can no longer reach root. Root-owned: the assistant
+// cannot change it. Set with `trust-key`.
+export const SIGNERS = '/etc/assistant/allowed_signers';
+
 const USAGE = `Usage: sudo node own-user.js COMMAND [--owner USER] [--memory 2G]
   install           create the user, copy code and data, start assistant.service (your user service stops)
   sync-from-owner   copy your newer secrets (.env) and saved logins to the assistant, restart it
   apply-update      (run by assistant-update.service) check out the release the assistant asked for:
                     only a tag vX.Y.Z newer than the installed one (never a branch, never older)
   rollback vX.Y.Z   (you, by hand) go back to an older release: sudo node own-user.js rollback v1.2.0
+  trust-key FILE    from now on install only releases signed with this ssh public key (.pub)
   check             is it safe: no sudo, other homes closed, code read-only, service up
   uninstall         stop it and start your own user service again (the user and its data stay)`;
 
@@ -282,7 +289,23 @@ function installed(run) {
 // a Node >= 20 check; its "prepare" build never runs for a registry package) and protobufjs
 // (postinstall: a version-scheme warning). Neither builds or downloads anything the gateway needs,
 // so skipping them changes nothing but keeps a hijacked dependency from running code as root.
-function checkoutRelease(run, version) {
+export function verifyRelease(run, version, signers = SIGNERS) {
+  if (!fs.existsSync(signers)) return;
+  try {
+    run('git', ['-C', APP, '-c', 'gpg.format=ssh', '-c', `gpg.ssh.allowedSignersFile=${signers}`, 'verify-tag', version]);
+  } catch { throw new Error(`refusing ${version}: its tag is not signed by a trusted release key (${signers})`); }
+}
+
+export function trustKey(file, { signers = SIGNERS } = {}) {
+  const key = fs.readFileSync(file, 'utf8').trim().split(/\s+/);
+  need(/^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa)$/.test(key[0]) && /^[A-Za-z0-9+/=]{40,}$/.test(key[1] || ''), `${file} is not an ssh public key`);
+  fs.mkdirSync(path.dirname(signers), { recursive: true, mode: 0o755 });
+  fs.writeFileSync(signers, `release namespaces="git" ${key[0]} ${key[1]}\n`, { mode: 0o644 });
+  return `trusted: releases must now be signed with ${key[0]} …${key[1].slice(-12)} (${signers})`;
+}
+
+function checkoutRelease(run, version, signers = SIGNERS) {
+  verifyRelease(run, version, signers);
   const target = run('git', ['-C', APP, 'rev-parse', `refs/tags/${version}^{commit}`]);
   run('git', ['-C', APP, 'checkout', '-q', target]);
   run('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: `${APP}/gateway` });
@@ -292,7 +315,7 @@ function checkoutRelease(run, version) {
 // The assistant wrote { version } to REQUEST (src/sync.js). The assistant can write anything
 // there, so root takes only a release tag newer than the installed one: no branch, no commit,
 // no way back to an old version with a known hole. Going back is `rollback`, by hand.
-export function applyUpdate({ run = sh, request = REQUEST, top = BOT_HOME } = {}) {
+export function applyUpdate({ run = sh, request = REQUEST, top = BOT_HOME, signers = SIGNERS } = {}) {
   noLink(path.dirname(request), top); // before the rm too: a linked data/ would make it remove a file elsewhere
   let text;
   try { text = readPlain(request); } catch (e) { if (e.code === 'ENOENT') return 'no request'; throw e; } finally {
@@ -304,15 +327,15 @@ export function applyUpdate({ run = sh, request = REQUEST, top = BOT_HOME } = {}
   run('git', ['-C', APP, 'fetch', '-q', '--tags', 'origin']);
   const now = installed(run);
   need(!now || newer(version, now), `refusing ${version}: not newer than the installed ${now} (to go back: sudo node own-user.js rollback ${version})`);
-  checkoutRelease(run, version);
+  checkoutRelease(run, version, signers);
   return `updated to ${version}`;
 }
 
 // By hand, as root: any release tag, an older one too. The assistant cannot start this.
-export function rollback(version, { run = sh } = {}) {
+export function rollback(version, { run = sh, signers = SIGNERS } = {}) {
   need(typeof version === 'string' && RELEASE.test(version), `not a release tag (vX.Y.Z): ${version}\n${USAGE}`);
   run('git', ['-C', APP, 'fetch', '-q', '--tags', 'origin']);
-  checkoutRelease(run, version);
+  checkoutRelease(run, version, signers);
   return `rolled back to ${version}`;
 }
 
@@ -356,6 +379,11 @@ export function main([cmd, ...rest]) {
   const owner = opt('owner', process.env.SUDO_USER);
   if (!cmd || cmd === '-h' || cmd === '--help') return USAGE;
   if (cmd === 'apply-update') return applyUpdate();
+  if (cmd === 'trust-key') {
+    need(process.getuid?.() === 0, 'run with sudo');
+    need(rest[0], `give the public key file\n${USAGE}`);
+    return trustKey(rest[0]);
+  }
   if (cmd === 'rollback') {
     need(RELEASE.test(rest[0] || ''), `not a release tag (vX.Y.Z): ${rest[0]}\n${USAGE}`);
     need(process.getuid?.() === 0, 'run with sudo');
