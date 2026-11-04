@@ -96,7 +96,13 @@ export default function people(config, { now = Date.now, log = console.log } = {
     allowed: ['mcp__people__find'], // send is never here: it matches GATED (__send) and always asks
     routes: { '/people': api },
     prompt: '## Other people\nTo message someone for the owner, look them up with mcp__people__find, then mcp__people__send. '
-      + 'The owner sees and approves every message first; do not ask "should I send?" in the chat, the tool call is the question.',
+      + 'The owner sees and approves every message first; do not ask "should I send?" in the chat, the tool call is the question.'
+      + (config.sendAs === 'owner'
+        ? '\nMessages go out from the owner\'s own number: write them AS the owner, in the first person, as if he typed them himself. '
+          + 'Never "a message from <owner>", never sign, never mention the assistant. Short and plain like a real chat message: '
+          + 'no AI tone, no formal greeting, no lists or bold, no dashes, no emoji unless he asked. Pass on what he asked, not more.'
+          + (config.style ? `\nHow the owner writes: ${config.style}` : '')
+        : ''),
     describers: [describe],
     approved({ tool_name, input = {} }) {
       if (tool_name !== 'mcp__people__send') return;
