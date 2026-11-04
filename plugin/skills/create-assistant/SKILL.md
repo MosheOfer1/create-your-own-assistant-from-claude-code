@@ -60,12 +60,27 @@ After each step: `$S mark STEP done` (or `skipped`) and `$S log "<what happened>
 10. **email** (optional) - Explain app passwords (a separate password just for the assistant, revocable). Gmail needs
     2-Step Verification on. `$S set modules.email '{"user":"<address>"}'`, then
     `$S secret EMAIL_APP_PASSWORD --url https://myaccount.google.com/apppasswords --say "<create one named Assistant, paste it>"`.
-11. **voice** (optional) - whisper.cpp on the host (macOS: `brew install whisper-cpp`; Linux: build from source or the
-    package manager) and a model in `~/.assistant/data/models/` (ggml-base.bin is small; ggml-small.bin is better for
-    non-English). `$S set modules.media '{}'`. A GPU makes it faster; no GPU is fine.
+11. **voice** (optional) - Voice notes need speech-to-text. Pick by what the host has, ask one question at most
+    (docs/modules/media.md has the engine table):
+    - A Mac with Apple silicon, or a machine with a GPU: whisper.cpp there (macOS: `brew install whisper-cpp`), a model in
+      `~/.assistant/data/models/` (ggml-small.bin or larger for non-English). Free, private, every language.
+    - No GPU: ask "simple and best quality, or nothing leaves the machine?".
+      Simple: a cloud service with an OpenAI-compatible API (OpenAI, Groq …):
+      `$S secret TRANSCRIBE_API_KEY --url <the service's key page> --say "<create a key and paste it>"`,
+      `$S set modules.media '{"transcriber":["http","sherpa"],"httpUrl":"<…/v1/audio/transcriptions>","httpModel":"<model>"}'`
+      (sherpa as the fallback only if its model is there). Say once: the audio goes to that service.
+      Private: sherpa (fast on a CPU, one language per model): put a streaming zipformer model for their language in
+      `~/.assistant/data/models/sherpa`, `$S set modules.media '{"transcriber":"sherpa","sherpaLanguages":["<code>"]}'`.
+    - They already run a speech server (a GPU at home over a VPN): `transcriber: ["http", …]` with its `httpUrl`; when it is
+      off, the next engine in the list answers.
+    Always: `voiceLanguage` is their chat language unless they speak several (`"auto"`).
 12. **logins** (optional) - Sites the assistant should be logged in to: `chrome-step.js login --url <site>` (they log in in
     the window and press Done). SSH host: then `chrome-step.js push --to USER@HOST:.assistant/data`.
     Always on: `$S set modules.reminders '{}'`, `$S set modules.brain '{}'` (if not set by step 6), `$S set modules.browse '{}'`.
+    With WhatsApp: `$S set modules.people '{}'` (it messages others only after their yes).
+    Gmail, Calendar and Drive without a password: connect them at claude.ai → Settings → Connectors, and
+    `$S set modules.google '{}'`. It works only with its own user (step 13); say so.
+    Ask about a morning brief (`modules.reminders.brief {"time":"07:30"}`) and quiet hours (`quietHours`, docs/modules/core.md).
 13. **service** - This computer: `service.js install`. SSH host: `$S repo push`, then `remote.js install USER@HOST --repo <owner>/my-assistant --version <tag>`.
     If linger is not on, explain the one admin command it needs.
     **Own user (Linux / WSL2, recommended):** explain: the assistant moves to a user of its own; it can no longer
