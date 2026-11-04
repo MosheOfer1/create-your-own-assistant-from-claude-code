@@ -82,3 +82,27 @@ test('without a channel that can send: a clear error', async () => {
   mod.start({ channel: {} });
   assert.match((await mod.api({ action: 'send', to: '+15550001111', text: 'x' })).error, /needs the WhatsApp channel/);
 });
+
+test('sendAs owner: messages to others go out through the link to the owner\'s number, only when it is open', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pp-'));
+  const made = [];
+  class FakeWA {
+    constructor(o) { this.o = o; this.sent = []; made.push(this); }
+    async start(onMessage) { this.onMessage = onMessage; this.o.onPairingCode('ABCD-1234'); }
+    async sendTo(to, text) { this.sent.push([to, text]); return 'x1'; }
+  }
+  const main = { sent: [], told: [], sendTo: async (to, text) => main.sent.push([to, text]), send: async (t) => main.told.push(t) };
+  const mod = people({ dataDir, agentCwd: dataDir, root: '/x', sendAs: 'owner', channels: { whatsapp: { ownerNumber: '+15550101' } }, WhatsAppChannel: FakeWA }, { log: () => {} });
+  await mod.start({ channel: main });
+  const link = made[0];
+  assert.equal(link.o.assistantNumber, '+15550101');
+  assert.match(main.told[0], /ABCD-1234/);
+  const msg = { action: 'send', to: '+15550111', text: 'hi' };
+  mod.approved({ tool_name: 'mcp__people__send', input: msg });
+  assert.match((await mod.api(msg)).error, /not connected/);
+  link.last = 'open';
+  mod.approved({ tool_name: 'mcp__people__send', input: msg });
+  assert.equal((await mod.api(msg)).ok, true);
+  assert.deepEqual(link.sent, [['+15550111', 'hi']]);
+  assert.deepEqual(main.sent, []);
+});

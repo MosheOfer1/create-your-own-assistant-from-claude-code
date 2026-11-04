@@ -9,7 +9,11 @@ import { ownFile } from '../../src/policy.js';
 // and needs a one-time ticket for exactly the number, text and file the owner saw.
 // Contacts: what the WhatsApp channel learns (channel.findContact), plus an optional file
 // <dataDir>/contacts.json { contacts: [{ phone, name }] } (e.g. imported from an older assistant).
-// Needs the whatsapp channel. Options (config.modules.people): none yet.
+// Needs the whatsapp channel. Options (config.modules.people):
+//   sendAs: "owner" — messages to others go out from the owner's own number, through a second
+//   WhatsApp link (a linked device of the owner's phone, data/whatsapp-owner-auth). A new
+//   assistant number may not start chats (WhatsApp error 463); the owner's number already talks
+//   to them. That link only sends: it never reads or passes on the owner's messages.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAX_FILE = 16 << 20; // WhatsApp's own limit for media is about 16 MB
 const digits = (s) => String(s ?? '').replace(/\D/g, '');
@@ -24,7 +28,8 @@ export const ticketKey = (i = {}, fileSum = null) => sha(JSON.stringify([digits(
 export default function people(config, { now = Date.now, log = console.log } = {}) {
   let router = null;
   const tickets = new Map(); // ticketKey → expiry
-  const channel = () => router?.channel;
+  let owner = null; // the second link when sendAs is "owner"
+  const channel = () => (owner || router?.channel);
 
   const extra = (() => {
     try { return JSON.parse(fs.readFileSync(path.join(config.dataDir, 'contacts.json'), 'utf8')).contacts || []; } catch { return []; }
@@ -64,6 +69,7 @@ export default function people(config, { now = Date.now, log = console.log } = {
       if (a.action === 'send') {
         if (digits(a.to).length < 8) throw new Error('give `to` as a full number in international format');
         if (!channel()?.sendTo) throw new Error('sending to others needs the WhatsApp channel');
+        if (owner && owner.last !== 'open') throw new Error(`the link to the owner's number is ${owner.last || 'not connected yet'}; tell the owner`);
         const file = fileOf(a.file);
         const k = ticketKey(a, file?.sha256 ?? null);
         const until = tickets.get(k);
@@ -97,6 +103,20 @@ export default function people(config, { now = Date.now, log = console.log } = {
       try { tickets.set(ticketKey(input, fileOf(input.file)?.sha256 ?? null), now() + 5 * 60_000); } catch (e) { log(`people: ${e.message}`); }
     },
     api,
-    start(r) { router = r; if (!r.channel?.sendTo) log('people: no channel can send to others (needs whatsapp)'); },
+    async start(r) {
+      router = r;
+      if (!r.channel?.sendTo) log('people: no channel can send to others (needs whatsapp)');
+      if (config.sendAs !== 'owner') return;
+      const num = config.channels?.whatsapp?.ownerNumber;
+      if (!num) return log('people: sendAs owner needs channels.whatsapp.ownerNumber');
+      const { WhatsAppChannel } = await import('../../src/channels/whatsapp.js');
+      owner = new (config.WhatsAppChannel || WhatsAppChannel)({
+        authDir: path.join(config.dataDir, 'whatsapp-owner-auth'), assistantNumber: num, ownerNumber: num, contactsFile: null,
+        log: (m) => log(`people (owner's number): ${m}`),
+        onPairingCode: (code) => r.channel.send(`🔗 Link your own WhatsApp for sending to others: on your phone, Settings → Linked devices → Link a device → Link with phone number instead, and type: ${code}`),
+      });
+      await owner.start(async () => {}); // incoming: ignored, never passed on
+    },
+    stop: () => owner?.stop?.(),
   };
 }
