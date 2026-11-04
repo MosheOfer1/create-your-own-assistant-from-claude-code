@@ -1,5 +1,6 @@
 import { describe, SHOW_MAX } from './approvals.js';
 import { NEW, STOP, strings } from './i18n.js';
+import { pickModel, STICKY_MS } from './modelpick.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
@@ -136,6 +137,14 @@ export class Router {
       this.state.set('inflight', { text, at: this.now(), quiet: true });
       return this.hooks.restart();
     }
+    // The everyday model, or the strong one when this turn needs it (modelpick.js).
+    let model;
+    if (this.config.strongModel) {
+      const p = pickModel(text, { now: this.now(), strongUntil: this.state.get('strongUntil') || 0 });
+      text = p.text;
+      model = p.strong ? this.config.strongModel : this.config.model;
+      if (p.strong) this.state.set('strongUntil', this.now() + STICKY_MS);
+    }
     const ctl = new AbortController();
     this.current = ctl;
     const typing = setInterval(() => this.channel.typing?.(true)?.catch?.(() => {}), 10_000);
@@ -145,7 +154,7 @@ export class Router {
     try {
       const extra = (await Promise.resolve().then(() => this.hooks.context?.(text)).catch(() => '')) || '';
       const onTool = (name, input) => { if (this.policy.untrusted(name, input)) this.markTainted(name); };
-      const r = await this.agent.run({ prompt: [extra, text].filter(Boolean).join('\n\n'), sessionId: this.session(), signal: ctl.signal, onTool });
+      const r = await this.agent.run({ prompt: [extra, text].filter(Boolean).join('\n\n'), sessionId: this.session(), model, signal: ctl.signal, onTool });
       this.state.set('lastTurnAt', this.now());
       // A failed turn drops its session: a broken one (e.g. it cannot be resumed) must not stick.
       if (r.isError && !r.aborted) this.newSession();

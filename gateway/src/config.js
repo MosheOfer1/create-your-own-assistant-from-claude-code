@@ -18,6 +18,7 @@ export const DEFAULTS = {
   agentCwd: path.join(BASE, 'home'), // the agent's own folder
   claudeBin: 'claude',
   model: 'sonnet',
+  strongModel: 'opus', // for turns that need it (src/modelpick.js); null: always `model`
   // Claude Code's built-in tools the agent gets (module MCP tools come on top). Fewer tools =
   // fewer tokens a conversation, and none that schedule cloud runs or spawn agents by themselves.
   tools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],

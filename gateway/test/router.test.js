@@ -284,6 +284,22 @@ test('a Bash command longer than SHOW_MAX is refused without asking', async () =
   assert.equal(s.approvals.pending().length, 0);
 });
 
+test('model pick: everyday by default, strong when asked or needed, and it sticks a while', async () => {
+  let t = 1_000_000;
+  const s = setup({ config: { model: 'sonnet', strongModel: 'opus' }, now: () => t });
+  await say(s, 'hi');
+  await say(s, 'opus: what now');
+  t += 60_000;
+  await say(s, 'yes go on');
+  t += 11 * 60_000;
+  await say(s, 'thanks');
+  assert.deepEqual(s.agent.calls.map((c) => c.model), ['sonnet', 'opus', 'opus', 'sonnet']);
+  assert.equal(s.agent.calls[1].prompt, 'what now'); // the prefix is dropped
+  const off = setup({ config: { strongModel: null } });
+  await say(off, 'opus: plan my week');
+  assert.equal(off.agent.calls[0].model, undefined); // the agent's own default
+});
+
 test('any request too long to show in full is refused, never cut (M4)', async () => {
   const s = setup();
   for (const [tool_name, input] of [['Write', { file_path: '/x/f', content: 'y'.repeat(SHOW_MAX + 400) }], ['mcp__x__do', { a: 'y'.repeat(SHOW_MAX + 400) }]]) {
