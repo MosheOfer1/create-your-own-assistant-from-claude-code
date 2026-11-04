@@ -14,6 +14,12 @@ on your computer, or on a machine you already have.
 - **Voice notes.** Send a voice note. The assistant turns the speech into text.
 - **Second brain.** It keeps what it learns about you in plain Markdown files.
   You can open them in Obsidian.
+- **Google.** Gmail, Calendar and Drive through the claude.ai connectors of your Claude account.
+  Only these three load; every other connector of the account stays off.
+- **Other people.** "Tell Dana I'm late." It finds the contact and shows you the exact text first.
+  It can send from the assistant's number, or from your own number (`people.sendAs: "owner"`,
+  a send-only linked device), written as you would write it.
+- **Location.** Send a pin; ask "where am I?" or "what's near me?" later.
 - **Telegram backup.** If WhatsApp goes down, the assistant tells you on Telegram.
 
 ## What you need
@@ -47,10 +53,23 @@ Claude asks one question at a time. You can skip any step and do it later.
 - **You type secrets in a local window.** Passwords and tokens never go through the chat.
 - **Public web pages only.** The browser refuses your own machine and your home network.
   It never types into password or card fields.
+- **Its own user.** On a server it runs as a separate Linux user that cannot read your home
+  or change its own code (`gateway/bin/own-user.js`).
+- **Signed updates.** Root installs only a release tag signed with your key
+  (`own-user.js trust-key key.pub`), never a branch and never an older version.
+- **`freeShell` is off by default.** On, plain shell commands run without asking; commands that
+  touch secrets, settings, other machines or the network still ask. Read
+  [docs/security.md](docs/security.md) before you turn it on.
 - **Use a spare WhatsApp number.** The assistant's number runs on an unofficial client (Baileys).
   WhatsApp may ban that number.
 
-You answer a request with "yes" or "no" in the same chat.
+You answer a request with "yes" or "no" in the same chat, or with ✅/❌ buttons on Telegram.
+
+## Your private parts
+
+Your settings, notes and personal modules live in your own private repo, never here.
+A module in `<private repo>/modules/<name>/index.js` loads like a built-in one: use it for
+things only you need (for example, images through a subscription you have).
 
 ## How it works
 
@@ -79,7 +98,7 @@ You answer a request with "yes" or "no" in the same chat.
 |---|---|
 | `plugin/` | The Claude Code plugin. Skills `create-assistant` and `web-browse`. |
 | `gateway/src/` | The core: router, agent, policy, approvals, channels. |
-| `gateway/modules/` | The parts you can switch on: reminders, media, brain, email, browse. |
+| `gateway/modules/` | The parts you can switch on: reminders, media, brain, email, browse, google, people. |
 | `gateway/bin/` | Tools: `setup`, `service`, `remote`, `chrome-step`, `browse`, `cli`. |
 | `docs/` | One page for each module, and the list of live checks. |
 | `scripts/` | Repo tools. The scanner for personal data. |
