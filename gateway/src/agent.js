@@ -6,6 +6,13 @@ import { ROOT } from './config.js';
 
 export const APPROVE_TOOL = 'mcp__approve__ask';
 
+// No settings files at all: not the user's ~/.claude (its CLAUDE.md, allow rules, hooks,
+// plugins, skills), not a CLAUDE.md or .claude/ the agent wrote into its own folder or one
+// above it. When the gateway runs as the owner's own user, those would bypass the approvals
+// and show the owner's private notes to the agent. Everything the agent needs comes as flags.
+// The login is not a setting: it is still read.
+const ISOLATE = ['--setting-sources', ''];
+
 // What Claude and every command it runs may see of the environment: what the CLI needs,
 // never the gateway's own secrets (channel tokens, mail passwords).
 const ENV_KEEP = /^(HOME|PATH|USER|LOGNAME|SHELL|LANG|LANGUAGE|LC_[A-Z]+|TZ|TERM|TMPDIR|XDG_[A-Z_]+|CLAUDE_[A-Z0-9_]+|ANTHROPIC_[A-Z0-9_]+|DISABLE_[A-Z_]+|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|HTTPS?_PROXY|NO_PROXY)$/i;
@@ -57,12 +64,15 @@ export function toolsIn(j) {
 export class Agent {
   constructor({ config, mcpConfig, allowedTools, disallowedTools = [], promptExtra = [], spawnFn = spawn }) {
     Object.assign(this, { config, mcpConfig, allowedTools, disallowedTools, promptExtra, spawnFn });
-    this.env = agentEnv(process.env, { MCP_TOOL_TIMEOUT: String((config.approvalTimeoutMin + 1) * 60_000) });
+    // No auto-memory either: it lives in ~/.claude/projects and is loaded outside the approvals.
+    // The brain module is the assistant's memory.
+    this.env = agentEnv(process.env, { MCP_TOOL_TIMEOUT: String((config.approvalTimeoutMin + 1) * 60_000), CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
     this.warm = null; // { child, key, session, buf, err, turn, idle, used }
   }
 
   args({ model, readOnly = false } = {}) {
     return [
+      ...ISOLATE,
       '--model', model || this.config.model,
       '--tools', (this.config.tools || ['default']).join(','),
       // A module's prompt may be a function (the brain's core facts): read each turn. When it
@@ -91,7 +101,7 @@ export class Agent {
 
   // A text task with no tools and no session (summaries, mail triage). Prompt via stdin.
   plain({ prompt, model = 'haiku', timeoutMs = 10 * 60_000 }) {
-    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--model', model, '--tools', '', '--strict-mcp-config', '--no-session-persistence'];
+    const args = ['-p', '--output-format', 'stream-json', '--verbose', ...ISOLATE, '--model', model, '--tools', '', '--strict-mcp-config', '--no-session-persistence'];
     return new Promise((resolve) => {
       const proc = this.start(args, null);
       proc.child.stdin.end(prompt);

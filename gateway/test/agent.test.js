@@ -122,6 +122,9 @@ test('non-warm run passes --resume, sends the prompt on stdin and stops the proc
   assert.deepEqual(args.slice(0, 4), ['-p', '--output-format', 'stream-json', '--verbose']);
   assert.deepEqual(args.slice(args.indexOf('--resume')), ['--resume', 'S7']);
   assert.ok(args.includes('--strict-mcp-config'));
+  // The owner's ~/.claude (CLAUDE.md, allow rules, hooks) and any CLAUDE.md the agent wrote stay out.
+  assert.equal(args[args.indexOf('--setting-sources') + 1], '');
+  assert.equal(agent.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1');
   assert.equal(args[args.indexOf('--mcp-config') + 1], '/x/mcp.json');
   assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--allowedTools') + 3), ['Read', 'Glob']);
   assert.match(child.written.join(''), /^\[Now \(UTC\): .*\]\nhi$/);
@@ -148,6 +151,7 @@ test('plain() runs a tool-less one-off with the prompt on stdin', async () => {
   const { child, args } = spawned[0];
   assert.equal(child.written.join(''), 'summarize');
   assert.ok(args.includes('--no-session-persistence'));
+  assert.equal(args[args.indexOf('--setting-sources') + 1], '');
   assert.equal(args[args.indexOf('--model') + 1], 'haiku');
   child.out(result({ result: 'summary' }));
   assert.equal((await p).text, 'summary');
