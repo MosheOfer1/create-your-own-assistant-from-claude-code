@@ -28,7 +28,7 @@ on your computer, or on a machine you already have.
 In Claude Code, type these two lines:
 
 ```
-/plugin marketplace add OWNER/create-your-own-assistant-from-claude-code
+/plugin marketplace add MosheOfer1/create-your-own-assistant-from-claude-code
 /plugin install assistant@create-your-own-assistant
 ```
 

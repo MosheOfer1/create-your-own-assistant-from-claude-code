@@ -21,7 +21,7 @@ Another identity (a work account, a brand): prefix `BROWSE_IDENTITY=work`. Never
 a second login in the same profile can log the first one out.
 
 **First run:** if `~/.assistant/app` is missing, tell the user what you will do and why, then:
-`git clone --depth 1 https://github.com/OWNER/create-your-own-assistant-from-claude-code ~/.assistant/app && cd ~/.assistant/app/gateway && npm ci --omit=dev && npx playwright-core install chromium`.
+`git clone --depth 1 https://github.com/MosheOfer1/create-your-own-assistant-from-claude-code ~/.assistant/app && cd ~/.assistant/app/gateway && npm ci --omit=dev && npx playwright-core install chromium`.
 
 ## Work fast
 

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const BASE = process.env.ASSISTANT_HOME || path.join(os.homedir(), '.assistant');
-const PUBLIC = 'https://github.com/OWNER/create-your-own-assistant-from-claude-code.git';
+const PUBLIC = 'https://github.com/MosheOfer1/create-your-own-assistant-from-claude-code.git';
 const NODE = '22.23.0';
 
 const USAGE = `Usage: remote.js COMMAND USER@HOST [--key FILE] [--version TAG] [--repo OWNER/NAME]

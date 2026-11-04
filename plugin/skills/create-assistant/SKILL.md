@@ -33,7 +33,8 @@ After each step: `$S mark STEP done` (or `skipped`) and `$S log "<what happened>
    (a **second phone number** for the assistant - a real SIM or eSIM, not a one-time virtual number; about 30 minutes;
    a computer that stays on, or a machine they already have), and that every message to other people, payment or
    booking asks them first.
-3. **prereqs** - First run only: if `~/.assistant/app` is missing, explain, then clone the public repo there and
+3. **prereqs** - First run only: if `~/.assistant/app` is missing, explain, then clone
+   https://github.com/MosheOfer1/create-your-own-assistant-from-claude-code there and
    `npm ci --omit=dev` in `gateway/`. Then `$S check`. Node 22+ is required (offer to install it: nvm, brew, or the
    nodejs.org installer); git and Claude Code are required; ffmpeg only for voice; `npx playwright-core install chromium` for the browser.
 4. **host** - Ask: "this computer" or "a machine you already have (SSH)". This computer must stay on and awake:

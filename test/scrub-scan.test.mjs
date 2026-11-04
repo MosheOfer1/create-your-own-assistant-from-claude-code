@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parsePatterns, scanText } from '../scripts/scrub-scan.mjs';
 
 const SCANNER = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'scrub-scan.mjs');
 const PATTERNS = ['Zorblax', '0501234567', 're:\\bacme\\b'].join('\n');
@@ -131,4 +132,12 @@ test('missing pattern file: exit 2, or 0 with --allow-missing; --help exits 0', 
   const h = t.raw('--help');
   assert.equal(h.status, 0);
   assert.match(h.stdout, /Usage/);
+});
+
+test('allow: lines permit exactly that text; the same name elsewhere is still found', () => {
+  const p = parsePatterns('zorblax\nallow:github.com/Zorblax/my-repo\n');
+  assert.equal(scanText('see github.com/Zorblax/my-repo here', p, 'f').length, 0);
+  const hits = scanText('mail zorblax@x.com and github.com/Zorblax/other', p, 'f');
+  assert.equal(hits.length, 2);
+  assert.equal(hits[0].col, 6);
 });

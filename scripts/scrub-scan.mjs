@@ -7,6 +7,8 @@
 //   plain text      -> literal match
 //   re:<regex>      -> regular expression (e.g. re:\bacme\b)
 //   a phone number  -> digits match with any spaces, dashes, dots or brackets between
+//   allow:<text>    -> this exact text is fine (e.g. the repo's own GitHub path), even if a
+//                      pattern matches inside it; everything else stays blocked
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -26,9 +28,11 @@ const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export function parsePatterns(text) {
   const out = [];
+  out.allow = [];
   text.split(/\r?\n/).forEach((raw, i) => {
     const line = raw.trim();
     if (!line || line.startsWith('#')) return;
+    if (line.startsWith('allow:')) return void (line.length > 6 && out.allow.push(new RegExp(escape(line.slice(6)), 'giu')));
     let src;
     if (line.startsWith('re:')) src = line.slice(3);
     else if (/^[+\d][\d\s\-.()]*$/.test(line) && line.replace(/\D/g, '').length >= 7)
@@ -44,7 +48,9 @@ const mask = (s) => (s.length <= 2 ? '*'.repeat(s.length) : s.slice(0, 2) + '*'.
 
 export function scanText(text, patterns, where) {
   const hits = [];
-  text.split('\n').forEach((l, n) => {
+  text.split('\n').forEach((raw, n) => {
+    // Allowed texts are blanked first (same length, so columns stay right).
+    const l = (patterns.allow || []).reduce((s, re) => s.replace(re, (m) => ' '.repeat(m.length)), raw);
     for (const p of patterns) {
       for (const m of l.matchAll(p.re)) {
         if (m[0]) hits.push({ where, line: n + 1, col: m.index + 1, id: p.id, hint: mask(m[0]) });
