@@ -78,7 +78,7 @@ export function parseConnectors(out) {
   return [...String(out).matchAll(/^claude\.ai (.+?): /gm)].map((m) => `mcp__claude_ai_${m[1].replace(/ /g, '_')}`);
 }
 export function disableSyncedPlugins(log = console.log, run = execFile) {
-  return new Promise((resolve) => run('claude', ['plugin', 'disable', '--all', '--scope', 'user'], { timeout: 60_000 }, (err) => {
+  return new Promise((resolve) => run('claude', ['plugin', 'disable', '--all'], { timeout: 60_000 }, (err) => {
     if (err) log('google: could not disable the synced plugins'); resolve();
   }));
 }
