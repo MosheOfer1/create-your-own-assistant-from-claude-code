@@ -24,8 +24,12 @@ export class Policy {
   // From then on strong actions ask until a new conversation: the text may carry instructions.
   untrusted(tool, input = {}) {
     if (this.untrustedRes.some((r) => r.test(tool))) return true;
-    const p = String(input.file_path || input.path || '');
-    return ['Read', 'Grep'].includes(tool) && !!this.agentCwd && p.startsWith(path.join(this.agentCwd, 'inbox'));
+    if (!['Read', 'Grep'].includes(tool) || !this.agentCwd) return false;
+    // Files others sent land in <agentCwd>/inbox. Paths may be relative or hold "..";
+    // a Grep over a folder above the inbox reads it too.
+    const inbox = path.join(path.resolve(this.agentCwd), 'inbox');
+    const abs = path.resolve(this.agentCwd, String(input.file_path || input.path || '.'));
+    return inside(abs, inbox) || (tool === 'Grep' && inside(inbox, abs) && fs.existsSync(inbox));
   }
 
   autoAllow(tool, input = {}, { tainted = false } = {}) {
@@ -47,6 +51,7 @@ export function plainUrl(url = '') {
   } catch { return false; }
 }
 
+const inside = (p, dir) => p === dir || p.startsWith(`${dir}${path.sep}`);
 const realOr = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
 
 // A file the agent may write by itself: inside its own folder, through no symlink out,

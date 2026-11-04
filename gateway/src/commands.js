@@ -11,7 +11,9 @@ const isFlag = (a) => a.startsWith('-');
 const hasOpt = (a, b) => a === b || a.startsWith(`${b}=`)
   || (/^-[a-zA-Z]$/.test(b) && /^-[a-zA-Z]+$/.test(a) && a.includes(b[1]));
 const without = (...bad) => (args) => !args.some((a) => bad.some((b) => hasOpt(a, b)));
-const sub = (allowed) => (args) => allowed.includes(args.find((a) => !isFlag(a)));
+// The verb must be one of `verbs`, and only `flags` (options without a value) may appear:
+// an option value (systemctl -p status restart x) must never be taken for the verb.
+const verb = (verbs, flags) => (args) => args.every((a) => !isFlag(a) || flags.includes(a)) && verbs.includes(args.find((a) => !isFlag(a)));
 const versionOnly = (...flags) => (args) => args.length === 1 && flags.includes(args[0]);
 
 const GIT = {
@@ -47,7 +49,8 @@ export const READ_ONLY = {
   ls: any, cat: any, head: any, wc: any, cut: any, tr: any, nl: any, echo: any, printf: any, pwd: any, cd: any,
   whoami: any, id: any, uname: any, uptime: any, df: any, du: any, free: any, ps: psNoEnv, pgrep: any, stat: any,
   which: any, realpath: any, readlink: any, basename: any, dirname: any, cmp: any, md5sum: any, sha256sum: any,
-  column: any, jq: any, nproc: any, groups: any, test: any, '[': any, true: any, false: any, seq: any, comm: any,
+  column: any, nproc: any,
+  jq: (a) => !a.some((x) => /env|input_filename|\$__loc__/i.test(x)), // `jq -n env` prints the secrets groups: any, test: any, '[': any, true: any, false: any, seq: any, comm: any,
   paste: any, rev: any, fold: any, strings: any, od: any, nslookup: any, dig: any, host: any, getent: any,
   locale: any, grep: any, egrep: any, fgrep: any, zgrep: any, zcat: any, lscpu: any, lsblk: any,
   hostname: (a) => a.every(isFlag),
@@ -64,7 +67,8 @@ export const READ_ONLY = {
     && /^(\d+|\$)(,(\d+|\$))?p$/.test(a.find((x) => !isFlag(x)) ?? ''),
   ping: (a) => a.includes('-c'),
   journalctl: without('-f', '--follow', '--vacuum-size', '--vacuum-time', '--vacuum-files', '--rotate', '--flush'),
-  systemctl: sub(['status', 'is-active', 'is-enabled', 'is-failed', 'list-units', 'list-timers', 'show', 'cat']),
+  systemctl: verb(['status', 'is-active', 'is-enabled', 'is-failed', 'list-units', 'list-timers', 'show', 'cat'],
+    ['--user', '--no-pager', '-l', '--full', '-a', '--all', '--failed', '-q', '--quiet', '--no-legend', '--plain']),
   git,
   curl,
   node: versionOnly('-v', '--version'),
@@ -88,11 +92,13 @@ const SECRET = [
 const SAFE_REDIRECT = /^(\d?>|&>)\/dev\/null$|^\d?>&\d$/;
 
 // Splits a line into simple commands (on | || && ; newline) made of words, quotes removed;
-// a redirect is kept as { redirect }. null for anything this parser does not fully understand.
+// a redirect is kept as { redirect }, a word with an unquoted * ? [ as { glob } (the shell
+// expands it, so its real name is unknown). null for anything this parser does not understand.
 export function parse(line) {
   const cmds = [[]];
   let word = null;
-  const push = () => { if (word !== null) cmds[cmds.length - 1].push(word); word = null; };
+  let glob = false;
+  const push = () => { if (word !== null) cmds[cmds.length - 1].push(glob ? { glob: word } : word); word = null; glob = false; };
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
     if (c === "'") {
@@ -135,6 +141,7 @@ export function parse(line) {
     } else if ('$`<(){}&'.includes(c) || (c === '#' && word === null)) {
       return null;
     } else {
+      if ('*?['.includes(c)) glob = true;
       word = (word ?? '') + c;
     }
   }
@@ -152,12 +159,16 @@ export function isReadOnly(line) {
   if (parts.length === 0 || parts.length !== cmds.length - trailingEmpty) return false; // "ls ;; rm"
   return parts.every((words) => {
     const args = [];
+    let globbed = false;
     for (const w of words) {
-      if (typeof w === 'object') { if (!SAFE_REDIRECT.test(w.redirect)) return false; } else args.push(w);
+      if (typeof w === 'string') args.push(w);
+      else if (w.glob !== undefined) { args.push(w.glob); globbed = true; } else if (!SAFE_REDIRECT.test(w.redirect)) return false;
     }
     const [prog, ...rest] = args;
     if (!prog || !Object.hasOwn(READ_ONLY, prog) || !READ_ONLY[prog](rest)) return false;
-    return NAMES_ONLY.has(prog) || !rest.some((a) => SECRET.some((re) => re.test(a)));
+    if (NAMES_ONLY.has(prog)) return true;
+    // A program that prints contents: no glob (cat dat?/x hides "data") and no secret path.
+    return !globbed && !rest.some((a) => SECRET.some((re) => re.test(a)));
   });
 }
 

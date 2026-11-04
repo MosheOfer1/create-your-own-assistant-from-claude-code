@@ -111,7 +111,9 @@ export class Router {
   }
 
   stop() {
-    const dropped = this.inbox.splice(0).length;
+    const items = this.inbox.splice(0);
+    for (const i of items) if (i.id) this.channel.react?.(i.id, '')?.catch?.(() => {});
+    const dropped = items.length;
     for (const a of this.approvals.waiting()) this.approvals.resolve(a.id, 'deny', 'stopped');
     if (!this.current && !dropped) return this.send(this.t.idle);
     this.current?.abort();
