@@ -120,4 +120,13 @@ test('userClaudeDirty: skills the account syncs (skills/synced) do not count', (
   assert.equal(userClaudeDirty(dir), 'skills, agents, commands, plugins or hooks');
   fs.rmSync(path.join(dir, 'plugins/cache.json'));
   assert.equal(userClaudeDirty(dir), null);
+  // An account plugin with skills only is fine; one with hooks is not.
+  fs.mkdirSync(path.join(dir, 'plugins/synced/acct/p1/skills/s'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'plugins/synced/acct/manifest.json'), '{}');
+  fs.writeFileSync(path.join(dir, 'plugins/synced/acct/p1.meta.json'), '{}');
+  fs.writeFileSync(path.join(dir, 'plugins/synced/acct/p1/skills/s/SKILL.md'), 'x');
+  assert.equal(userClaudeDirty(dir), null);
+  fs.mkdirSync(path.join(dir, 'plugins/synced/acct/p1/hooks'));
+  fs.writeFileSync(path.join(dir, 'plugins/synced/acct/p1/hooks/hooks.json'), '{}');
+  assert.match(userClaudeDirty(dir), /plugins/);
 });

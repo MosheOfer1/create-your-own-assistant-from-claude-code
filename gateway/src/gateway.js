@@ -35,7 +35,22 @@ export function moduleFile(name, { root = ROOT, repoDir = path.join(BASE, 'repo'
 // skip: top names that do not count. skills/synced: the account's own skills, synced down by
 // Claude (the agent runs with --disable-slash-commands, agent.js, so they never load).
 // plugins/plugin-directory-cache*.json: the CLI's catalog of plugins, nothing installed.
+// plugins/synced: account plugins that carry skills only (their manifest, meta files and a
+// skills/ folder) are as harmless; one with a plugin.json, hooks, MCP servers or agents counts.
 const SKIP = { skills: /^synced$/, plugins: /^plugin-directory-cache.*\.json$/ };
+function pluginsOnlySynced(dir) {
+  const rest = fs.readdirSync(dir).filter((n) => !n.startsWith('.') && n !== 'synced' && !SKIP.plugins.test(n));
+  return !rest.length && syncedPluginsSafe(path.join(dir, 'synced'));
+}
+function syncedPluginsSafe(dir) {
+  const ok = (rel) => /^[^/]+\/(manifest\.json|[^/]+\.meta\.json|[^/]+\/skills\/.+)$/.test(rel);
+  const walk = (d, rel = '') => {
+    let list;
+    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return true; }
+    return list.every((e) => e.name.startsWith('.') || (e.isDirectory() ? walk(path.join(d, e.name), rel + e.name + '/') : e.isFile() && ok(rel + e.name)));
+  };
+  return walk(dir);
+}
 function hasFiles(dir, depth = 6, skip = null) {
   let list;
   try { list = fs.readdirSync(dir, { withFileTypes: true }); } catch { return false; }
@@ -46,7 +61,7 @@ function hasFiles(dir, depth = 6, skip = null) {
 export function userClaudeDirty(dir) {
   const has = (f) => fs.existsSync(path.join(dir, f));
   if (has('CLAUDE.md')) return 'a CLAUDE.md';
-  if (['skills', 'agents', 'commands', 'plugins', 'hooks'].some((d) => hasFiles(path.join(dir, d), 6, SKIP[d]))) return 'skills, agents, commands, plugins or hooks';
+  if (['skills', 'agents', 'commands', 'plugins', 'hooks'].some((d) => hasFiles(path.join(dir, d), 6, SKIP[d]) && !(d === 'plugins' && pluginsOnlySynced(path.join(dir, d))))) return 'skills, agents, commands, plugins or hooks';
   for (const f of ['settings.json', 'settings.local.json']) {
     if (!has(f)) continue;
     let s;
