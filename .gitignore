@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+!.env.example
+data/
+*.log
+.DS_Store
+# never commit the personal scrub list
+scrub-patterns*.txt

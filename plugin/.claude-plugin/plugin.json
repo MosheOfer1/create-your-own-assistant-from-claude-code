@@ -1,0 +1,17 @@
+{
+  "name": "assistant",
+  "version": "0.1.0",
+  "description": "Create your own personal assistant from Claude Code: a WhatsApp gateway, modules (email, reminders, browse, media, brain) and a guided setup.",
+  "author": {
+    "name": "create-your-own-assistant contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "assistant",
+    "whatsapp",
+    "second-brain",
+    "email",
+    "reminders",
+    "setup"
+  ]
+}
