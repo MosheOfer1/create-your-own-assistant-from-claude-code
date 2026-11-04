@@ -43,6 +43,11 @@ export function userClaudeDirty(dir) {
   return null;
 }
 
+// MCP servers in ~/.claude.json (user scope) load with the user's settings too.
+export function userMcpServers(file) {
+  try { return Object.keys(JSON.parse(fs.readFileSync(file, 'utf8')).mcpServers || {}).length ? `MCP servers in ${path.basename(file)}` : null; } catch { return null; }
+}
+
 export async function loadModules(config, ctx = {}) {
   const out = [];
   for (const [name, opts] of Object.entries(config.modules || {})) {
@@ -84,7 +89,7 @@ export async function createGateway({ config, channel, modules, agentFactory, lo
   // claude.ai connectors (the google module) need the user's own settings: only as its own user.
   // And only while that ~/.claude stays clean: no CLAUDE.md, no allow rules, hooks or plugins.
   const wants = config.ownUser && modules.some((m) => m.claudeAi);
-  const dirty = wants && userClaudeDirty(path.join(os.homedir(), '.claude'));
+  const dirty = wants && (userClaudeDirty(path.join(os.homedir(), '.claude')) || userMcpServers(path.join(os.homedir(), '.claude.json')));
   if (dirty) log(`google: connectors off: ~/.claude of this user has ${dirty}. Remove it to use them.`);
   const claudeAi = wants && !dirty;
   const agentOpts = { config, mcpConfig, allowedTools: policy.allowed, disallowedTools: deny, promptExtra: modules.map((m) => m.prompt).filter(Boolean), claudeAi };

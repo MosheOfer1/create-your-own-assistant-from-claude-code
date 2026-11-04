@@ -87,7 +87,9 @@ After each step: `$S mark STEP done` (or `skipped`) and `$S log "<what happened>
     see their files, and its code becomes read-only to it, so it may run plain commands without asking. It needs their
     admin password once. Ask them to type, with a leading `!` (sudo asks for the password there, not in the chat):
     `! sudo "$(command -v node)" ~/.assistant/app/gateway/bin/own-user.js install` (SSH host: `remote.js own-user USER@HOST`
-    prints the command). Show its `ok:` / `BAD:` lines. Later secrets or logins: `! sudo … own-user.js sync-from-owner`.
+    prints the command). Show its `ok:` / `BAD:` lines. Then Claude must log in once for the new user (a login of its own:
+    a copied one breaks when either side refreshes): ask them to type the `BAD: Claude is not logged in` command it prints, in a
+    terminal of their own (SSH host: inside `ssh -t USER@HOST '…'`), open the link, paste the code, `/exit`. Later secrets or logins: `! sudo … own-user.js sync-from-owner`.
     macOS: skip (it runs as their user, with the guards in the code).
 14. **deploy** - Explain: settings and brain live in their private repo. A change made there from outside (GitHub,
     Obsidian on a phone) is picked up when the assistant answers the next message. What they ask in the chat works

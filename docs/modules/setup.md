@@ -69,6 +69,9 @@ Run once with sudo: `sudo "$(command -v node)" ~/.assistant/app/gateway/bin/own-
   (`ProtectSystem=strict`), and caps memory. Shell commands that change things still ask
   (`freeShell` stays off): the agent runs as the same user as the gateway and could read its secrets.
 - Its clone of the private repo gets its own deploy key. Your GitHub login stays yours.
+- Claude: it logs in once on its own (`check` prints the command:
+  `sudo -u assistant -H /home/assistant/.local/bin/claude /login`). A copy of your login would share one
+  refresh token with yours: when either side refreshes, the other one stops working.
 - A new `version`: the assistant writes `data/update-request.json`; `assistant-update.path` (root)
   checks out that tag, runs `npm ci` and restarts it. The assistant never runs sudo.
 - New secrets or logins later: `sudo … own-user.js sync-from-owner`. Safety check: `check`.

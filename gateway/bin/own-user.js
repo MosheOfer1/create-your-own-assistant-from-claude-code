@@ -181,8 +181,9 @@ function install({ owner, memory }) {
     asBot('mkdir', ['-p', noLink(path.join(BOT_HOME, '.local', 'bin'))]);
     asBot('ln', ['-sfn', target, path.join(BOT_HOME, '.local', 'bin', 'claude')]); // -n: replace a link, never write into its target
   }
-  giveBot(path.join(home, '.claude', '.credentials.json'), path.join(BOT_HOME, '.claude', '.credentials.json'));
-  giveBot(path.join(home, '.claude.json'), path.join(BOT_HOME, '.claude.json'));
+  // Not your Claude login: a copied login shares one refresh token with yours, and when either
+  // side refreshes, the other one stops working. The assistant logs in once on its own (LOGIN).
+  // Not your ~/.claude.json either: it holds your own MCP servers and settings.
   giveBot(path.join(home, '.cache', 'ms-playwright'), path.join(BOT_HOME, '.cache', 'ms-playwright'));
   const closed = [path.join(BOT_BASE, 'data'), path.join(BOT_HOME, '.claude')].map((p) => noLink(p));
   asBot('mkdir', ['-p', ...closed]);
@@ -324,7 +325,19 @@ function check({ owner }) {
     line(!ok('runuser', ['-u', BOT, '--', 'test', '-w', `${APP}/gateway/src/policy.js`]), 'the code is read-only for it'),
     line(sh('stat', ['-c', '%a', home]).slice(-1) === '0' || !ok('runuser', ['-u', BOT, '--', 'ls', home]), `it cannot read ${home} (and the service hides all homes anyway)`),
     line(ok('systemctl', ['is-active', '--quiet', 'assistant.service']), 'assistant.service is running'),
+    loggedIn() ? line(true, 'Claude is logged in for it') : line(false, `Claude is not logged in for it: ${LOGIN}`),
   ].join('\n');
+}
+
+// The assistant's own Claude login (an OAuth login of its own, or an API key in data/.env).
+export const LOGIN = `sudo -u ${BOT} -H ${BOT_HOME}/.local/bin/claude /login   (once, interactive; then /exit)`;
+function loggedIn() {
+  const env = path.join(BOT_BASE, 'data', '.env');
+  if (fs.existsSync(env) && /^(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)=\S/m.test(fs.readFileSync(env, 'utf8'))) return true;
+  try {
+    const j = JSON.parse(readPlain(path.join(BOT_HOME, '.claude', '.credentials.json'))).claudeAiOauth || {};
+    return Boolean(j.refreshToken && j.expiresAt > 0); // a refresh that failed leaves expiresAt 0
+  } catch { return false; }
 }
 
 function uninstall({ owner }) {

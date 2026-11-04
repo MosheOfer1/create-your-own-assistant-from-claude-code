@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Agent } from '../src/agent.js';
-import { userClaudeDirty } from '../src/gateway.js';
+import { userClaudeDirty, userMcpServers } from '../src/gateway.js';
 import { Policy } from '../src/policy.js';
 import google, { privateEvent } from '../modules/google/index.js';
 
@@ -77,5 +77,17 @@ test('userClaudeDirty: a clean ~/.claude passes; CLAUDE.md, skills, hooks or all
     fs.rmSync(path.join(dir, 'skills'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'hi');
     assert.match(userClaudeDirty(dir), /CLAUDE\.md/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('userMcpServers: MCP servers in ~/.claude.json also keep the connectors off', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uc-'));
+  try {
+    const f = path.join(dir, '.claude.json');
+    assert.equal(userMcpServers(f), null);
+    fs.writeFileSync(f, JSON.stringify({ numStartups: 3 }));
+    assert.equal(userMcpServers(f), null);
+    fs.writeFileSync(f, JSON.stringify({ mcpServers: { x: { command: 'y' } } }));
+    assert.match(userMcpServers(f), /MCP servers/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
