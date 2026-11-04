@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
+import { applyUpdate } from '../bin/own-user.js';
 import { makeSync } from '../src/sync.js';
 
 // sync with ownUser: true. The gateway cannot check out code (it is root's): it asks root with
@@ -179,5 +180,48 @@ describe('sync without ownUser (the contrast)', () => {
     assert.equal(s.w.head, sha('2'));
     assert.equal(s.calls.filter((c) => c.cmd === 'npm').length, 1);
     assert.equal(fs.existsSync(s.req), false);
+  });
+});
+
+// The two halves together: what sync.js writes is what own-user.js applyUpdate reads (as root).
+// Root takes only a release tag newer than the installed one, so a branch or an older tag that
+// sync passes on is refused there.
+describe('sync request → root applyUpdate', () => {
+  const rootRun = (installedTags) => {
+    const calls = [];
+    const run = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (cmd === 'git' && args[2] === 'tag') return installedTags;
+      if (cmd === 'git' && args[2] === 'rev-parse') return sha('9');
+      return '';
+    };
+    return { calls, run };
+  };
+
+  test('a newer release tag: root checks it out (scripts off) and removes the request', async () => {
+    const s = setup({ version: 'v1.3.0', tags: { 'v1.3.0': sha('3') } });
+    await s.sync();
+    const r = rootRun('v1.2.0');
+    assert.equal(applyUpdate({ run: r.run, request: s.req, top: s.base }), 'updated to v1.3.0');
+    assert.ok(r.calls.some((c) => c[0] === 'npm' && c.includes('--ignore-scripts')));
+    assert.equal(fs.existsSync(s.req), false);
+  });
+
+  test('a branch that sync asked for is refused by root: nothing checked out', async () => {
+    const s = setup({ version: 'stable', origin: { stable: sha('5') } });
+    await s.sync();
+    assert.equal(s.readReq().version, 'stable');
+    const r = rootRun('v1.2.0');
+    assert.throws(() => applyUpdate({ run: r.run, request: s.req, top: s.base }), /not a release tag/);
+    assert.deepEqual(r.calls, []);
+  });
+
+  test('an older release tag (a downgrade) is refused by root', async () => {
+    const s = setup({ version: 'v1.1.0', tags: { 'v1.1.0': sha('1') } });
+    await s.sync();
+    assert.equal(s.readReq().version, 'v1.1.0');
+    const r = rootRun('v1.0.0\nv1.2.0');
+    assert.throws(() => applyUpdate({ run: r.run, request: s.req, top: s.base }), /not newer than the installed v1\.2\.0/);
+    assert.ok(!r.calls.some((c) => c[0] === 'npm' || c.includes('checkout')));
   });
 });

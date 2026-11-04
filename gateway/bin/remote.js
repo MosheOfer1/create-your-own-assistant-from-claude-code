@@ -14,8 +14,10 @@ const NODE = '22.23.0';
 
 const USAGE = `Usage: remote.js COMMAND USER@HOST [--key FILE] [--version TAG] [--repo OWNER/NAME]
   check     what the machine has: OS, CPU, RAM (needs 2 GB+), node, git, claude, systemd, AppArmor userns
-  install   Node ${NODE} (if older), the public repo at --version, npm ci, Chromium, the private repo
-            (--repo, via a deploy key made on the machine), config and secrets, the service
+  install   Node ${NODE} (if older, checked against nodejs.org's SHASUMS256.txt), the public repo at
+            --version (default: its newest release tag vX.Y.Z; main only if it has none), npm ci,
+            Chromium, the private repo (--repo, via a deploy key made on the machine), config and
+            secrets, the service
   login     prints the one command the user runs to log Claude in on the machine (interactive)
   own-user  prints the one command that moves the assistant to its own user there (sudo, interactive)
   logs [N]  the service's last log lines`;
@@ -52,21 +54,48 @@ export function judge(text) {
   return { ok: problems.length === 0, problems, notes, facts: v };
 }
 
-const installScript = ({ version, repoUrl }) => `set -e
+// Node from nodejs.org into ~/.local/opt/node22. The tarball is checked against the
+// SHASUMS256.txt that nodejs.org publishes next to it before anything is unpacked: a broken or
+// swapped download stops the install here.
+export const NODE_SH = `arch=$(uname -m); case $arch in x86_64) a=x64;; aarch64|arm64) a=arm64;; *) echo "unsupported cpu $arch"; exit 1;; esac
+f="node-v${NODE}-linux-$a.tar.xz"; t=$(mktemp -d)
+curl -fsSL -o "$t/$f" "https://nodejs.org/dist/v${NODE}/$f"
+curl -fsSL -o "$t/SHASUMS256.txt" "https://nodejs.org/dist/v${NODE}/SHASUMS256.txt"
+(cd "$t" && awk -v f="$f" '$2 == f' SHASUMS256.txt | sha256sum -c - >/dev/null 2>&1) || { echo "ERROR: $f does not match nodejs.org's SHASUMS256.txt"; rm -rf "$t"; exit 1; }
+mkdir -p "$HOME/.local/opt" && cd "$HOME/.local/opt" && tar -xJf "$t/$f" && rm -rf node22 "$t" && mv "node-v${NODE}-linux-$a" node22`;
+
+// Claude Code's own installer, from claude.ai over HTTPS. It is saved to a file and run from
+// there, not piped into bash: a download cut off halfway never runs as half a script, and a
+// failed download stops the install (set -e) instead of feeding bash nothing.
+export const CLAUDE_SH = `if ! command -v claude >/dev/null && [ ! -x "$HOME/.local/bin/claude" ]; then
+  t=$(mktemp -d)
+  curl -fsSL -o "$t/install.sh" https://claude.ai/install.sh
+  bash "$t/install.sh"
+  rm -rf "$t"
+fi`;
+
+// The version to run: --version if given, else the newest release tag vX.Y.Z. main only when
+// the repo has no release yet, and the output says so (main is whatever was pushed last).
+export const checkoutScript = (version) => `cd "$A/app" && git fetch -q --tags
+v=${version ? `'${safe('version', version)}'` : `$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+$' | head -n 1)`}
+if [ -z "$v" ]; then v=main; echo "version: main (the repo has no release tag yet)"; else echo "version: $v"; fi
+git checkout -q "$v"`;
+
+export const installScript = ({ version, repoUrl }) => `set -e
 umask 077
 A="$HOME/.assistant"; mkdir -p "$A/data"
 if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 22 ]; then
   if [ ! -x "$HOME/.local/opt/node22/bin/node" ]; then
-    arch=$(uname -m); case $arch in x86_64) a=x64;; aarch64|arm64) a=arm64;; *) echo "unsupported cpu $arch"; exit 1;; esac
-    mkdir -p "$HOME/.local/opt" && cd "$HOME/.local/opt"
-    curl -fsSL "https://nodejs.org/dist/v${NODE}/node-v${NODE}-linux-$a.tar.xz" | tar -xJ && rm -rf node22 && mv "node-v${NODE}-linux-$a" node22
+${NODE_SH}
   fi
   export PATH="$HOME/.local/opt/node22/bin:$PATH"
 fi
-command -v claude >/dev/null || [ -x "$HOME/.local/bin/claude" ] || curl -fsSL https://claude.ai/install.sh | bash
+${CLAUDE_SH}
 [ -d "$A/app/.git" ] || git clone -q ${PUBLIC} "$A/app"
-cd "$A/app" && git fetch -q --tags && git checkout -q ${version || 'main'}
-cd gateway && npm ci --omit=dev --no-audit --no-fund >/dev/null && npx --yes playwright-core install chromium >/dev/null
+${checkoutScript(version)}
+# --ignore-scripts: the install scripts in the lockfile are only checks (Baileys: Node >= 20,
+# protobufjs: a version warning); a hijacked dependency gets no install-time code run.
+cd gateway && npm ci --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null && npx --yes playwright-core install chromium >/dev/null
 ${repoUrl ? `[ -f "$HOME/.ssh/assistant_repo" ] || ssh-keygen -q -t ed25519 -N '' -C assistant-repo -f "$HOME/.ssh/assistant_repo"
 echo "deploy_key: $(cat "$HOME/.ssh/assistant_repo.pub")"` : ''}
 echo "node: $(command -v node)"
@@ -108,11 +137,12 @@ export function main([cmd, host, ...rest]) {
     if (repoUrl) {
       const pub = /deploy_key: (.+)/.exec(out[0])?.[1];
       if (!pub) throw new Error('no deploy key came back');
-      const f = path.join(os.tmpdir(), `assistant-deploy-${Date.now()}.pub`);
+      // A fresh private folder (mkdtemp), not a guessable name in /tmp.
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'assistant-deploy-'));
+      const f = path.join(dir, 'assistant_repo.pub');
       fs.writeFileSync(f, `${pub}\n`);
       // Write access: the brain on the machine commits and pushes its notes.
-      try { execFileSync('gh', ['repo', 'deploy-key', 'add', f, '--repo', repo, '--allow-write', '--title', `assistant on ${host.split('@')[1]}`], { stdio: 'pipe' }); } catch (e) { if (!/already/.test(String(e.stderr))) throw e; }
-      fs.rmSync(f, { force: true });
+      try { execFileSync('gh', ['repo', 'deploy-key', 'add', f, '--repo', repo, '--allow-write', '--title', `assistant on ${host.split('@')[1]}`], { stdio: 'pipe' }); } catch (e) { if (!/already/.test(String(e.stderr))) throw e; } finally { fs.rmSync(dir, { recursive: true, force: true }); }
       out.push(remote(host, key, cloneRepoScript(repoUrl)).trim());
     }
     // config and secrets over stdin, 0600 on the other side.

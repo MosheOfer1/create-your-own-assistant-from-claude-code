@@ -47,6 +47,8 @@ Claude asks one question at a time. You can skip any step and do it later.
 - **You type secrets in a local window.** Passwords and tokens never go through the chat.
 - **Public web pages only.** The browser refuses your own machine and your home network.
   It never types into password or card fields.
+- **Use a spare WhatsApp number.** The assistant's number runs on an unofficial client (Baileys).
+  WhatsApp may ban that number.
 
 You answer a request with "yes" or "no" in the same chat.
 
