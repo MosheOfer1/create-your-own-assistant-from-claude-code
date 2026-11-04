@@ -35,6 +35,8 @@ for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, quit);
 // The private repo: pulled before a turn (at most once a minute) and once a day, never on a timer.
 const sync = makeSync({ base: BASE, app: path.dirname(ROOT), ownUser: config.ownUser });
 Object.assign(gw.router.hooks, { beforeTurn: () => sync(), restart: quit });
-setInterval(async () => {
-  if (await sync({ force: true }) === 'restart' && !gw.router.current) await quit();
-}, 24 * 3600_000).unref();
+const pull = async () => { if (await sync({ force: true }) === 'restart' && !gw.router.current) await quit(); };
+setInterval(pull, 24 * 3600_000).unref();
+// Also once at start, so after a reboot or a long time down it is current before the first message.
+// No loop: right after a restart the pull finds nothing new.
+setTimeout(pull, 5000).unref();
