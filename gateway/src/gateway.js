@@ -66,7 +66,7 @@ export function userClaudeDirty(dir) {
     if (!has(f)) continue;
     let s;
     try { s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return `an unreadable ${f}`; }
-    if (s.hooks || s.permissions?.allow?.length || Object.values(s.enabledPlugins || {}).some((v) => v !== false) || s.mcpServers || s.apiKeyHelper || s.env) return `settings in ${f}`;
+    if (s.hooks || s.permissions?.allow?.length || s.permissions?.defaultMode || s.permissions?.additionalDirectories?.length || s.defaultMode || s.statusLine || s.awsAuthRefresh || s.awsCredentialExport || s.otelHeadersHelper || Object.values(s.enabledPlugins || {}).some((v) => v !== false) || s.mcpServers || s.apiKeyHelper || s.env) return `settings in ${f}`;
   }
   return null;
 }
@@ -143,14 +143,19 @@ export async function createGateway({ config, channel, modules, agentFactory, lo
   let claudeAi = wants && !dirty;
   if (claudeAi) {
     const all = await (config.listConnectors || listConnectors)();
-    if (!all) { log('google: connectors off: `claude mcp list` failed.'); claudeAi = false; } else {
-      const keep = config.modules?.google?.connectors || ['Gmail', 'Google_Calendar', 'Google_Drive'];
+    const keep = config.modules?.google?.connectors || ['Gmail', 'Google_Calendar', 'Google_Drive'];
+    // Fail closed: when the list cannot be read or a wanted connector is not in it, the format may
+    // have changed and the deny list would miss everything. Then no connectors at all.
+    const missing = all && keep.filter((k) => !all.includes(`mcp__claude_ai_${k.replace(/ /g, '_')}`));
+    if (!all || missing.length) { log(`google: connectors off: ${!all ? '`claude mcp list` failed' : `not found: ${missing.join(', ')}`}.`); claudeAi = false; } else {
       const off = connectorDeny(all, keep);
       deny.push(...off);
       if (off.length) log(`google: connectors denied: ${off.join(', ')}`);
     }
   }
-  const agentOpts = { config, mcpConfig, allowedTools: policy.allowed, disallowedTools: deny, promptExtra: modules.map((m) => m.prompt).filter(Boolean), claudeAi };
+  // Checked again before every turn: a command may have written into ~/.claude since the start.
+  const claudeDirty = () => userClaudeDirty(path.join(os.homedir(), '.claude')) || userMcpServers(path.join(os.homedir(), '.claude.json'));
+  const agentOpts = { config, mcpConfig, allowedTools: policy.allowed, disallowedTools: deny, promptExtra: modules.map((m) => m.prompt).filter(Boolean), claudeAi, claudeDirty, log };
   const agent = agentFactory ? agentFactory(agentOpts) : new Agent(agentOpts);
 
   const approvals = new Approvals({ timeoutMs: config.approvalTimeoutMin * 60_000, holdMs: config.approvalHoldHours * 3600_000, store: state });

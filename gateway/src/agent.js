@@ -14,7 +14,8 @@ export const APPROVE_TOOL = 'mcp__approve__ask';
 const ISOLATE = ['--setting-sources', ''];
 // The claude.ai connectors (Gmail, Calendar, Drive) load only with the user's settings and
 // without --strict-mcp-config. Only for a gateway that runs as its own user: its ~/.claude is
-// its own (bin/own-user.js copies the login, nothing else) and the agent cannot write there.
+// its own (bin/own-user.js copies the login, nothing else). The agent's files cannot go there, and
+// with freeShell a command naming .claude asks (commands.js); still it is checked before each turn.
 // No skills or commands either: the account syncs its own skills into ~/.claude/skills/synced.
 const WITH_CONNECTORS = ['--setting-sources', 'user', '--disable-slash-commands'];
 
@@ -67,8 +68,8 @@ export function toolsIn(j) {
 // Runs agent turns. The main conversation goes to one warm process (a turn = one stdin line);
 // one-offs (readOnly, plain) start their own process.
 export class Agent {
-  constructor({ config, mcpConfig, allowedTools, disallowedTools = [], promptExtra = [], claudeAi = false, spawnFn = spawn }) {
-    Object.assign(this, { config, mcpConfig, allowedTools, disallowedTools, promptExtra, spawnFn });
+  constructor({ config, mcpConfig, allowedTools, disallowedTools = [], promptExtra = [], claudeAi = false, claudeDirty = () => null, log = console.log, spawnFn = spawn }) {
+    Object.assign(this, { config, mcpConfig, allowedTools, disallowedTools, promptExtra, claudeDirty, log, spawnFn });
     this.claudeAi = !!(claudeAi && config.ownUser);
     // No auto-memory either: it lives in ~/.claude/projects and is loaded outside the approvals.
     // The brain module is the assistant's memory.
@@ -76,15 +77,24 @@ export class Agent {
     this.warm = null; // { child, key, session, buf, err, turn, idle, used }
   }
 
+  // Connectors only while ~/.claude is still clean; once it is not, every turn runs isolated.
+  connectorsNow() {
+    if (!this.claudeAi) return false;
+    const dirty = this.claudeDirty();
+    if (dirty) { this.claudeAi = false; this.log(`google: connectors off from now: ~/.claude has ${dirty}`); }
+    return !dirty;
+  }
+
   args({ model, readOnly = false } = {}) {
+    const ai = this.connectorsNow();
     return [
-      ...(this.claudeAi ? WITH_CONNECTORS : ISOLATE),
+      ...(ai ? WITH_CONNECTORS : ISOLATE),
       '--model', model || this.config.model,
       '--tools', (this.config.tools || ['default']).join(','),
       // A module's prompt may be a function (the brain's core facts): read each turn. When it
       // changes, the arguments change and the warm process restarts with the new prompt.
       '--append-system-prompt', systemPrompt(this.config, this.promptExtra.map((p) => (typeof p === 'function' ? p() : p)).filter(Boolean)),
-      '--mcp-config', this.mcpConfig, ...(this.claudeAi ? [] : ['--strict-mcp-config']),
+      '--mcp-config', this.mcpConfig, ...(ai ? [] : ['--strict-mcp-config']),
       ...(readOnly ? ['--permission-prompts', 'none'] : ['--permission-prompt-tool', APPROVE_TOOL]),
       '--allowedTools', ...this.allowedTools,
       ...(this.disallowedTools.length ? ['--disallowedTools', ...this.disallowedTools] : []),

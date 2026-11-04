@@ -65,9 +65,10 @@ function quietNet(command, tainted) {
 
 // A shell command that brings in text someone else wrote: a file in the inbox, a web page
 // (curl, wget, a script's fetch), a cloned or pulled repo. Then the conversation is tainted,
-// as after WebFetch. With freeShell a script could still fetch in a way this misses (see
+// as after WebFetch. Inline code (python -c, node -e) and escaped text count too: they may fetch
+// in a way no word list sees. With freeShell a script could still fetch in a way this misses (see
 // docs/security.md): that is why freeShell is off unless the owner turns it on.
-const OUTSIDE = /(^|[\s/'"=])inbox(\/|\s|$|['"])|https?:\/\/|\b(curl|wget|nc|ncat|telnet|lynx|w3m|links|aria2c|ftp)\b|\bgit\b[^|;&]*\b(clone|pull|fetch)\b|\b(urlopen|urllib|requests\.|fetch\(|http\.get|axios)/i;
+const OUTSIDE = /(^|[\s/'"=])inbox(\/|\s|$|['"])|https?:\/\/|\b(curl|wget|nc|ncat|telnet|lynx|w3m|links|aria2c|ftp)\b|\bgit\b[^|;&]*\b(clone|pull|fetch)\b|\b(urlopen|urllib|requests\.|fetch\(|http\.get|axios)|\b(python[0-9.]*|node|perl|ruby|php|deno|bun)\s+-[cer]\b|\bopenssl\s+s_client\b|\\x[0-9a-f]{2}/i;
 export const outsideText = (command = '') => OUTSIDE.test(String(command));
 
 const inside = (p, dir) => p === dir || p.startsWith(`${dir}${path.sep}`);

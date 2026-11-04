@@ -198,5 +198,11 @@ const REAL_CHANGE = [
   /\b(kill|pkill|killall)\b/, /\bgit\b[^|;&]*\bpush\b/, /\b(ssh|scp|sftp|rsync)\b/, /\bcrontab\b/,
   /(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b/, /\bcurl\b[^|;&]*\s(-d|--data[\w-]*|-F|--form|-T|--upload-file|-X\s*(POST|PUT|PATCH|DELETE))\b/,
   /\bmkfs|\bdd\s|\bwipefs\b|\bshred\b/,
+  /\bcurl\b[^|;&]*\s(--json|--request\s*(POST|PUT|PATCH|DELETE))\b/i, /\bwget\b[^|;&]*\s--(post-data|post-file|method|body-data|body-file)\b/,
+  // The gateway's own state and every secret: its Claude settings (hooks, bypass modes), its login,
+  // .env files, the data folder (WhatsApp keys, the control token) and ssh keys. Reading counts too.
+  /(^|[\s'"=:/])(\.claude(\.json)?|\.env|\.ssh|\.config|\.gnupg|data)(\/|\s|$|['"])|\.credentials\.json|\bmcp\.json\b/,
+  // Code built at run time cannot be judged: decoded, evaluated or piped into a shell.
+  /\bbase64\s+(-d|--decode)\b|\beval\b|\|\s*(ba|z|da)?sh\b/,
 ];
 export const realChange = (command = '') => REAL_CHANGE.some((r) => r.test(String(command)));

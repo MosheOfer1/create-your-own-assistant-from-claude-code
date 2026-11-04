@@ -117,7 +117,7 @@ export default function people(config, { now = Date.now, log = console.log } = {
       if (!num) return log('people: sendAs owner needs channels.whatsapp.ownerNumber');
       const { WhatsAppChannel } = await import('../../src/channels/whatsapp.js');
       owner = new (config.WhatsAppChannel || WhatsAppChannel)({
-        authDir: path.join(config.dataDir, 'whatsapp-owner-auth'), assistantNumber: num, ownerNumber: num, contactsFile: null,
+        authDir: path.join(config.dataDir, 'whatsapp-owner-auth'), assistantNumber: num, ownerNumber: num, contactsFile: null, sendOnly: true,
         log: (m) => log(`people (owner's number): ${m}`),
         onPairingCode: (code) => r.channel.send(`🔗 Link your own WhatsApp for sending to others: on your phone, Settings → Linked devices → Link a device → Link with phone number instead, and type: ${code}`),
       });

@@ -97,9 +97,10 @@ export class WhatsAppChannel {
   // assistantNumber: the number this device links to. ownerNumber: the only person it listens to.
   // onStatus(s): 'open' | 'closed' | 'down' (10 min without a connection) | 'logged-out'.
   // contactsFile: the contact list (default: whatsapp-contacts.json next to the auth folder).
-  constructor({ authDir, assistantNumber, ownerNumber, onPairingCode, log = console.log, makeSocket = makeWASocket, auth = useMultiFileAuthState, fetchVersion = fetchLatestBaileysVersion, now = Date.now,
+  // sendOnly: a link that only sends (people sendAs owner): no history is synced at all.
+  constructor({ authDir, assistantNumber, ownerNumber, onPairingCode, sendOnly = false, log = console.log, makeSocket = makeWASocket, auth = useMultiFileAuthState, fetchVersion = fetchLatestBaileysVersion, now = Date.now,
     contactsFile = authDir && path.isAbsolute(authDir) ? path.join(path.dirname(authDir), 'whatsapp-contacts.json') : null }) {
-    Object.assign(this, { authDir, onPairingCode, log, makeSocket, auth, fetchVersion, now });
+    Object.assign(this, { authDir, onPairingCode, sendOnly, log, makeSocket, auth, fetchVersion, now });
     this.book = new ContactBook({ file: contactsFile, log });
     this.lastLocation = null; // { lat, lon, at, live, name?, address?, accuracy? }: the owner's last known location
     this.assistant = digits(assistantNumber);
@@ -136,7 +137,7 @@ export class WhatsAppChannel {
   }
 
   connect() {
-    const sock = this.makeSocket({ auth: this.creds, logger: this.logger, markOnlineOnConnect: false, syncFullHistory: false, ...(this.version && { version: this.version }) });
+    const sock = this.makeSocket({ auth: this.creds, logger: this.logger, markOnlineOnConnect: false, syncFullHistory: false, ...(this.sendOnly && { shouldSyncHistoryMessage: () => false }), ...(this.version && { version: this.version }) });
     this.sock = sock;
     let asked = false;
     sock.ev.on('creds.update', this.saveCreds);
