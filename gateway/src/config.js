@@ -34,7 +34,11 @@ export const DEFAULTS = {
   modules: {},
 };
 
-export function loadConfig(file = process.env.ASSISTANT_CONFIG || path.join(BASE, 'config.json')) {
+// The private repo's config.json (made by the setup skill) wins over a plain one.
+export const configFile = () => process.env.ASSISTANT_CONFIG
+  || [path.join(BASE, 'repo', 'config.json'), path.join(BASE, 'config.json')].find((f) => fs.existsSync(f)) || path.join(BASE, 'config.json');
+
+export function loadConfig(file = configFile()) {
   const own = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   const config = { ...DEFAULTS, ...own };
   for (const k of ['dataDir', 'agentCwd']) config[k] = path.resolve(config[k].replace(/^~(?=$|\/)/, os.homedir()));

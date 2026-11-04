@@ -20,8 +20,11 @@ export default function brainModule(config, { exec = execFile, log = console.log
   let timer = null;
 
   // Changes become a commit after a quiet 30 s (and a push if asked).
+  // The brain is a repo itself (a vault) or the brain/ folder of the private repo. Never further
+  // up: a home folder that happens to be a git repo must not get the assistant's commits.
+  const inGit = () => [dir, path.dirname(path.resolve(dir))].some((d) => fs.existsSync(path.join(d, '.git')));
   const commit = () => {
-    if (config.commit === false || !fs.existsSync(path.join(dir, '.git'))) return;
+    if (config.commit === false || !inGit()) return;
     clearTimeout(timer);
     timer = setTimeout(() => {
       exec('git', ['-C', dir, 'add', '-A'], (e1) => {

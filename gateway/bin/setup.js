@@ -14,7 +14,8 @@ import { pathToFileURL } from 'node:url';
 const BASE = process.env.ASSISTANT_HOME || path.join(os.homedir(), '.assistant');
 const STATE = path.join(BASE, 'setup.json');
 const LOG = path.join(BASE, 'setup.log');
-const CONFIG = path.join(BASE, 'config.json');
+const REPO = path.join(BASE, 'repo'); // the user's private repo: config.json + brain/
+const CONFIG = fs.existsSync(path.join(REPO, 'config.json')) ? path.join(REPO, 'config.json') : path.join(BASE, 'config.json');
 const ENV = path.join(BASE, 'data', '.env');
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 
@@ -26,6 +27,7 @@ const USAGE = `Usage: setup.js COMMAND
   mark STEP done|skipped [NOTE]  record a step (${STEPS.join(', ')})
   log TEXT                       add a line to the setup log
   get [KEY] | set KEY JSON       read / change config.json (dots for nesting: modules.email.user)
+  repo create NAME | repo push   a private GitHub repo (gh) for config.json + brain/, cloned to ~/.assistant/repo
   secret NAME --url URL --say TEXT [--lang xx]
                                  the user types/pastes a secret in a local window; it goes to data/.env
                                  (NAME: ${Object.keys(SECRETS).join(', ')}). Prints: saved | closed | timeout
@@ -53,6 +55,7 @@ export function setEnv(file, name, value) {
   fs.writeFileSync(file, `${lines.join('\n')}\n`, { mode: 0o600 });
 }
 
+const git = (...steps) => { for (const s of steps) execFileSync('git', ['-C', REPO, ...s], { stdio: 'pipe' }); };
 const version = (cmd, args = ['--version']) => { try { return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000 }).split('\n')[0].trim(); } catch { return null; } };
 
 export async function main([cmd, ...rest]) {
@@ -85,7 +88,29 @@ export async function main([cmd, ...rest]) {
     if (Object.keys(SECRETS).some((s) => key.toUpperCase().includes(s))) throw new Error('secrets go through `secret`, never into config.json');
     write(CONFIG, setPath(read(CONFIG, {}), key, value));
     log(`config ${key} set`);
+    if (CONFIG.startsWith(REPO)) git(['add', 'config.json'], ['commit', '-q', '-m', `setup: ${key}`]);
     return `${key} = ${JSON.stringify(value)}`;
+  }
+  if (cmd === 'repo') {
+    // repo create NAME: a private GitHub repo for config + brain (gh must be logged in).
+    // repo push: send local commits (each host pulls within ~5 minutes).
+    if (rest[0] === 'push') { git(['push', '-q']); log('repo pushed'); return 'pushed'; }
+    if (rest[0] !== 'create' || !/^[\w.-]+$/.test(rest[1] || '')) throw new Error('repo create NAME | repo push');
+    if (fs.existsSync(path.join(REPO, '.git'))) return `already at ${REPO}`;
+    const user = execFileSync('gh', ['api', 'user', '--jq', '.login'], { encoding: 'utf8' }).trim();
+    try { execFileSync('gh', ['repo', 'create', `${user}/${rest[1]}`, '--private', '--description', 'My assistant: settings and second brain'], { stdio: 'pipe' }); } catch (e) { if (!/already exists/i.test(String(e.stderr))) throw e; }
+    execFileSync('gh', ['repo', 'clone', `${user}/${rest[1]}`, REPO], { stdio: 'pipe' });
+    const conf = read(path.join(BASE, 'config.json'), {});
+    conf.modules = { ...conf.modules, brain: { ...(conf.modules?.brain || {}), dir: path.join(REPO, 'brain'), push: true } };
+    write(path.join(REPO, 'config.json'), conf);
+    fs.mkdirSync(path.join(REPO, 'brain', 'memory'), { recursive: true });
+    fs.writeFileSync(path.join(REPO, 'brain', 'README.md'), '# Second brain\n\nNotes and facts the assistant keeps. Open this folder in Obsidian if you like.\n');
+    fs.writeFileSync(path.join(REPO, '.gitignore'), '.env\n*.env\ndata/\n.obsidian/workspace*.json\n');
+    fs.writeFileSync(path.join(REPO, 'README.md'), '# My assistant\n\n`config.json`: settings (no secrets). `brain/`: the second brain.\nA push here reaches the assistant within about 5 minutes.\n');
+    git(['add', '-A'], ['commit', '-q', '-m', 'setup: start'], ['push', '-q', '-u', 'origin', 'HEAD']);
+    fs.rmSync(path.join(BASE, 'config.json'), { force: true }); // one config only: the repo's
+    log(`repo ${user}/${rest[1]} created`);
+    return `${user}/${rest[1]} (private) at ${REPO}`;
   }
   if (cmd === 'has') return fs.existsSync(ENV) && fs.readFileSync(ENV, 'utf8').split('\n').some((l) => l.startsWith(`${rest[0]}=`)) ? 'yes' : 'no';
   if (cmd === 'secret') {
@@ -133,6 +158,6 @@ export async function main([cmd, ...rest]) {
   throw new Error(`unknown command ${cmd}\n${USAGE}`);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.argv.slice(2)).then((out) => console.log(out), (e) => { console.error(`ERROR: ${String(e.message).split('\n')[0]}`); process.exit(1); });
 }
