@@ -25,12 +25,23 @@ Yes and no words exist in several languages.
 Defaults are in `gateway/src/config.js`. `ASSISTANT_HOME` and `ASSISTANT_CONFIG` change the paths.
 A module is off when `modules.<name>.enabled` is `false`.
 
+## Your own modules
+
+Keep what is personal out of the public code: put a module in your private repo, in
+`modules/<name>/index.js`, and turn it on in `config.json` (`"modules": { "<name>": {} }`).
+- It has the same contract as a built-in module (top of `gateway/src/gateway.js`).
+- A built-in module with the same name wins. Names use `a-z`, `0-9` and `-`.
+- It reaches the core by absolute path: `await import(\`${config.root}/src/net.js\`)`.
+- A change in `modules/` restarts the gateway after the next pull, like a change in `config.json`.
+- It runs with the gateway's rights. Only code you wrote or checked belongs there.
+
 ## Secrets
 
 The gateway reads `<dataDir>/.env` (file mode 0600). The agent gets a filtered environment: `PATH`,
 `HOME`, `ANTHROPIC_*`, `CLAUDE_*` and a few more. It never gets `TELEGRAM_BOT_TOKEN`,
 `EMAIL_APP_PASSWORD` or `TRANSCRIBE_API_KEY`. `Read` is denied for `dataDir`, `~/.ssh`, `~/.claude`,
-`~/.config` and `~/.gnupg`.
+`~/.config`, `~/.gnupg`, cloud and package logins (`~/.aws`, `~/.docker`, `~/.npmrc`, `~/.netrc` ...),
+browser profiles, shell history, `~/.local/share` and `~/Library` (full list: `secretReadDeny` in `policy.js`).
 
 ## What runs freely, what asks
 
@@ -39,7 +50,11 @@ The gateway reads `<dataDir>/.env` (file mode 0600). The agent gets a filtered e
 - Always asks: any tool whose name matches send, reply, forward, share, pay, buy, book, order,
   or respond_to_event.
 - Everything else asks, unless a module allows it.
-- Tainted conversation: `WebFetch` only for plain addresses (no query), and free shell stops.
+- Read-only network commands (`curl`, `nslookup`, `ping` ...) never reach this machine or the home network.
+- Tainted conversation (after a web page, an email, a file in the inbox, or a shell command that
+  fetched something): `WebFetch` and `curl` only for plain addresses (no query), `nslookup`/`dig`/`ping`
+  ask, memory writes ask, free shell stops.
+- An approval shows the whole request. A request too long to show in full is refused, never cut.
 - A request waits `approvalTimeoutMin`. Then it is parked. A late "yes" counts for `approvalHoldHours`.
 
 ## Limits and known issues

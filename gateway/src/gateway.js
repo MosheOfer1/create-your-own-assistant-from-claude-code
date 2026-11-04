@@ -1,7 +1,10 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Agent, writeMcpConfig } from './agent.js';
 import { Approvals } from './approvals.js';
+import { BASE, ROOT } from './config.js';
 import { newToken, startControl } from './control.js';
 import { hostReadDeny, LOCAL_FETCH_DENY, Policy, secretReadDeny } from './policy.js';
 import { Router } from './router.js';
@@ -13,11 +16,24 @@ import { State } from './state.js';
 //   prompt: 'text for the system prompt', context(text), command(text), approve(request),
 //   start(router), stop() }
 // Every field is optional, so each module works alone and the core works with none.
+//
+// A module is built in (gateway/modules/<name>) or the owner's own, in their private repo
+// (<repo>/modules/<name>/index.js): what is personal stays out of the public code. A built-in
+// name wins, so a private module cannot replace a built-in one by accident. A private module
+// runs with the gateway's rights, like a built-in one: only the owner's repo can hold one.
+// It reaches the core by absolute path: import(`${config.root}/src/net.js`).
+export function moduleFile(name, { root = ROOT, repoDir = path.join(BASE, 'repo') } = {}) {
+  if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error(`module name "${name}": use a-z, 0-9 and -`);
+  const file = [path.join(root, 'modules', name, 'index.js'), path.join(repoDir, 'modules', name, 'index.js')].find((f) => fs.existsSync(f));
+  if (!file) throw new Error(`no module "${name}": not built in, not in ${path.join(repoDir, 'modules')}`);
+  return file;
+}
+
 export async function loadModules(config, ctx = {}) {
   const out = [];
   for (const [name, opts] of Object.entries(config.modules || {})) {
     if (opts?.enabled === false) continue;
-    const { default: make } = await import(`../modules/${name}/index.js`);
+    const { default: make } = await import(pathToFileURL(moduleFile(name, { repoDir: config.repoDir })).href);
     out.push({ name, ...(await make({ ...config, ...opts }, ctx)) });
   }
   return out;

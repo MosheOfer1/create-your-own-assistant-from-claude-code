@@ -18,7 +18,8 @@ export function makeSync({ base, app, minGapMs = 60_000, now = Date.now, exec = 
   let last = -Infinity; // a failed pull also counts: offline, it is tried again after minGapMs
   let busy = null;
   const git = async (cwd, ...a) => (await exec('git', ['-C', cwd, ...a], { timeout: 60_000 })).stdout.trim();
-  const blob = () => git(repo, 'rev-parse', 'HEAD:config.json').catch(() => '');
+  // config.json and the owner's private modules (modules/): a change in either restarts.
+  const blob = async () => [await git(repo, 'rev-parse', 'HEAD:config.json').catch(() => ''), await git(repo, 'rev-parse', 'HEAD:modules').catch(() => '')].join(' ');
 
   async function once({ force = false } = {}) {
     if (!fs.existsSync(path.join(repo, '.git'))) return 'none';

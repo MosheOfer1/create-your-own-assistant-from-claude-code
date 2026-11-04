@@ -4,7 +4,24 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
 import { DEFAULTS, ROOT } from '../src/config.js';
-import { createGateway, hooksOf } from '../src/gateway.js';
+import { createGateway, hooksOf, loadModules, moduleFile } from '../src/gateway.js';
+
+test('a module from the private repo loads; a built-in name wins; a bad name is refused', async () => {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-repo-'));
+  after(() => fs.rmSync(repoDir, { recursive: true, force: true }));
+  const dir = path.join(repoDir, 'modules', 'my-thing');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.js'), 'export default (config) => ({ prompt: `hi ${config.who}` });\n');
+  fs.mkdirSync(path.join(repoDir, 'modules', 'brain'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, 'modules', 'brain', 'index.js'), 'throw new Error("never loaded");\n');
+
+  const [m] = await loadModules({ modules: { 'my-thing': { who: 'Dana' } }, repoDir });
+  assert.equal(m.name, 'my-thing');
+  assert.equal(m.prompt, 'hi Dana');
+  assert.equal(moduleFile('brain', { repoDir }), path.join(ROOT, 'modules', 'brain', 'index.js'));
+  assert.throws(() => moduleFile('../x', { repoDir }), /use a-z/);
+  assert.throws(() => moduleFile('nope', { repoDir }), /no module "nope"/);
+});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const keepAlive = setInterval(() => {}, 1000); // Approvals timers are unref'd

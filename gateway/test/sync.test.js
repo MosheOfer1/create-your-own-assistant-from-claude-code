@@ -27,6 +27,7 @@ function setup({ repo = true, version, config, world = {} } = {}) {
   }
   const w = {
     blob: 'blob-1', // what HEAD:config.json resolves to now
+    modules: null, // what HEAD:modules resolves to (null: no private modules)
     blobAfterPull: undefined, // set by the pull (undefined: unchanged)
     head: 'c0'.padEnd(40, '0'), // HEAD of the app checkout
     tags: {}, // local `<name>^{commit}` → sha
@@ -50,6 +51,7 @@ function setup({ repo = true, version, config, world = {} } = {}) {
     if (sub === 'pull') {
       if (w.pullError) throw new Error(w.pullError);
       if (w.blobAfterPull !== undefined) w.blob = w.blobAfterPull;
+      if (w.modulesAfterPull !== undefined) w.modules = w.modulesAfterPull;
       return out('');
     }
     if (sub === 'fetch') return out('');
@@ -59,6 +61,10 @@ function setup({ repo = true, version, config, world = {} } = {}) {
       if (ref === 'HEAD:config.json') {
         if (w.blob == null) throw new Error('fatal: path config.json does not exist');
         return out(w.blob);
+      }
+      if (ref === 'HEAD:modules') {
+        if (w.modules == null) throw new Error('fatal: path modules does not exist');
+        return out(w.modules);
       }
       if (ref === 'HEAD') { assert.equal(dir, app); return out(w.head); }
       const local = /^(.+)\^\{commit\}$/.exec(ref)?.[1];
@@ -99,9 +105,17 @@ describe('sync: how often it pulls', () => {
     assert.equal(await s.sync(), 'none');
     assert.equal(s.sub('pull').length, 1);
     assert.deepEqual(s.sub('pull')[0].args, ['-C', s.repoDir, 'pull', '-q', '--rebase', '--autostash']);
-    // the blob is read before and after the pull
-    assert.deepEqual(s.calls.map((c) => c.args[2]), ['rev-parse', 'pull', 'rev-parse']);
+    // config.json and modules/ are read before and after the pull
+    assert.deepEqual(s.calls.map((c) => c.args[2]), ['rev-parse', 'rev-parse', 'pull', 'rev-parse', 'rev-parse']);
     assert.deepEqual(s.calls[0].args, ['-C', s.repoDir, 'rev-parse', 'HEAD:config.json']);
+    assert.deepEqual(s.calls[1].args, ['-C', s.repoDir, 'rev-parse', 'HEAD:modules']);
+  });
+
+  test('a change in the private modules (modules/) restarts, like config.json', async () => {
+    const same = setup({ world: { modules: 'tree-1' } });
+    assert.equal(await same.sync(), 'none');
+    const s = setup({ world: { modules: 'tree-1', modulesAfterPull: 'tree-2' } });
+    assert.equal(await s.sync(), 'restart');
   });
 
   test('a second call within minGapMs does not pull; after the gap it does', async () => {
