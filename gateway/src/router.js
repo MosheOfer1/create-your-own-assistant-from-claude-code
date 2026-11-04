@@ -62,8 +62,11 @@ export class Router {
 
   // The owner's live location, while they share it (the channel keeps it fresh for 30 minutes).
   // A pinned one counts for 3 hours: the owner often sends it first and asks after.
+  // Kept in state too: an update restarts the gateway, often right between "here I am" and "where am I?".
   whereNow() {
-    const l = this.channel.lastLocation;
+    const live = this.channel.lastLocation, kept = this.state.get('lastLocation');
+    const l = live && (!kept || live.at >= kept.at) ? live : kept;
+    if (live && l === live && (kept?.at !== live.at || kept?.place !== live.place)) this.state.set('lastLocation', live);
     if (!l || this.now() - l.at > (l.live ? LIVE_MS : 3 * 3600_000)) return '';
     const min = Math.round((this.now() - l.at) / 60_000);
     return `[The owner's ${l.live ? 'live' : 'last sent'} location (${min} min ago): ${l.lat}, ${l.lon}${l.place ? ` — ${l.place}` : ''} — https://maps.google.com/?q=${l.lat},${l.lon}]`;

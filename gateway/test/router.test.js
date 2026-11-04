@@ -339,9 +339,12 @@ test('a live location goes with each turn while it is fresh; an old one does not
   s.channel.lastLocation = { lat: 1, lon: 2, at: t, live: false, place: 'Rehavia, Jerusalem' };
   await say(s, 'x');
   assert.match(s.agent.calls[2].prompt, /^\[The owner's last sent location \(0 min ago\): 1, 2 — Rehavia, Jerusalem — /);
+  s.channel.lastLocation = null; // a restart: the channel forgot it, the state did not
+  await say(s, 'z');
+  assert.match(s.agent.calls[3].prompt, /Rehavia, Jerusalem/);
   t += 4 * 3600_000; // a pinned one counts for 3 hours
   await say(s, 'y');
-  assert.equal(s.agent.calls[3].prompt, 'y');
+  assert.equal(s.agent.calls[4].prompt, 'y');
 });
 
 test('any request too long to show in full is refused, never cut (M4)', async () => {

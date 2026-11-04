@@ -157,6 +157,8 @@ export async function createGateway({ config, channel, modules, agentFactory, lo
   const router = new Router({ config, state, approvals, policy, agent, channel, hooks: hooksOf(modules), log });
   Object.assign(routes, { '/approval': (b) => router.requestApproval(b) }, ...modules.map((m) => m.routes || {}));
 
+  // A location the owner sends is saved at once: an update may restart the gateway before the next turn.
+  for (const c of channel.list?.map((x) => x.channel) || [channel]) c.onLocation = (l) => state.set('lastLocation', { ...l });
   for (const m of modules) await m.start?.(router);
   channel.start((msg) => router.receive(msg));
   router.resume();

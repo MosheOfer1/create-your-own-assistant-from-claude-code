@@ -188,7 +188,8 @@ export class WhatsAppChannel {
         if (read.location && !keepLocation(this, read.location, this.now())) continue;
         if (read.location) {
           const at = this.lastLocation;
-          (this.placeOf || placeOf)(at.lat, at.lon).then((p) => { if (p && this.lastLocation === at) at.place = p; });
+          this.onLocation?.(at);
+          (this.placeOf || placeOf)(at.lat, at.lon).then((p) => { if (p && this.lastLocation === at) { at.place = p; this.onLocation?.(at); } });
           // A location with no words of the owner's: kept for later ("where am I?"), no turn. 📍 says it arrived.
           if (read.text === locationLine(read.location) && !read.quoted) {
             sock.sendMessage(m.key.remoteJid, { react: { text: '📍', key: m.key } }).catch(() => {});
