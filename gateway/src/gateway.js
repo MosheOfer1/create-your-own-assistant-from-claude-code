@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,6 +53,20 @@ export function userClaudeDirty(dir) {
 }
 
 // MCP servers in ~/.claude.json (user scope) load with the user's settings too.
+// The claude.ai connectors of the account, as tool prefixes: "claude.ai Google Drive: …" →
+// mcp__claude_ai_Google_Drive. From `claude mcp list` (no model call). null when it fails.
+export function parseConnectors(out) {
+  return [...String(out).matchAll(/^claude\.ai (.+?): /gm)].map((m) => `mcp__claude_ai_${m[1].replace(/ /g, '_')}`);
+}
+export function listConnectors(run = execFile) {
+  return new Promise((resolve) => run('claude', ['mcp', 'list'], { timeout: 90_000 }, (err, out) => resolve(err ? null : parseConnectors(out))));
+}
+// Every connector the config does not name is denied: its tools never reach the agent's context.
+export function connectorDeny(all, keep = []) {
+  const want = new Set(keep.map((k) => `mcp__claude_ai_${k.replace(/ /g, '_')}`));
+  return all.filter((p) => !want.has(p));
+}
+
 export function userMcpServers(file) {
   try { return Object.keys(JSON.parse(fs.readFileSync(file, 'utf8')).mcpServers || {}).length ? `MCP servers in ${path.basename(file)}` : null; } catch { return null; }
 }
@@ -99,7 +114,16 @@ export async function createGateway({ config, channel, modules, agentFactory, lo
   const wants = config.ownUser && modules.some((m) => m.claudeAi);
   const dirty = wants && (userClaudeDirty(path.join(os.homedir(), '.claude')) || userMcpServers(path.join(os.homedir(), '.claude.json')));
   if (dirty) log(`google: connectors off: ~/.claude of this user has ${dirty}. Remove it to use them.`);
-  const claudeAi = wants && !dirty;
+  let claudeAi = wants && !dirty;
+  if (claudeAi) {
+    const all = await (config.listConnectors || listConnectors)();
+    if (!all) { log('google: connectors off: `claude mcp list` failed.'); claudeAi = false; } else {
+      const keep = config.modules?.google?.connectors || ['Gmail', 'Google_Calendar', 'Google_Drive'];
+      const off = connectorDeny(all, keep);
+      deny.push(...off);
+      if (off.length) log(`google: connectors denied: ${off.join(', ')}`);
+    }
+  }
   const agentOpts = { config, mcpConfig, allowedTools: policy.allowed, disallowedTools: deny, promptExtra: modules.map((m) => m.prompt).filter(Boolean), claudeAi };
   const agent = agentFactory ? agentFactory(agentOpts) : new Agent(agentOpts);
 

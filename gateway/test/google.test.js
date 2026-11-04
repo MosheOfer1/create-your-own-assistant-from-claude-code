@@ -100,3 +100,12 @@ test('userMcpServers: MCP servers in ~/.claude.json also keep the connectors off
     assert.match(userMcpServers(f), /MCP servers/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+import { connectorDeny, parseConnectors } from '../src/gateway.js';
+
+test('only the named claude.ai connectors stay; the rest are denied', () => {
+  const out = 'claude.ai Gmail: https://g - ✔ Connected\nclaude.ai creative-claw: https://c - ✔ Connected\nclaude.ai xhostd Easy Deployment: https://x - ✔ Connected\nlocal: node x.js - ✔ Connected\nclaude.ai Google Drive: https://d - ✔ Connected\n';
+  const all = parseConnectors(out);
+  assert.deepEqual(all, ['mcp__claude_ai_Gmail', 'mcp__claude_ai_creative-claw', 'mcp__claude_ai_xhostd_Easy_Deployment', 'mcp__claude_ai_Google_Drive']);
+  assert.deepEqual(connectorDeny(all, ['Gmail', 'Google Drive']), ['mcp__claude_ai_creative-claw', 'mcp__claude_ai_xhostd_Easy_Deployment']);
+});
