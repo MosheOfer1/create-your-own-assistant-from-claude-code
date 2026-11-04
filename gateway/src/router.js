@@ -62,8 +62,17 @@ export class Router {
   }
 
   async handle(msg) {
-    const text = (msg.text || '').trim();
-    if (!text) return msg.unsupported ? this.send(this.t.unsupported) : undefined;
+    let text = (msg.text || '').trim();
+    // Voice notes and files become text for the agent (media module). They go straight to a
+    // turn: a transcript or a caption never answers an approval or runs a command.
+    if ((msg.audio || msg.file) && this.hooks.media) {
+      let t;
+      try { t = await this.hooks.media(msg); } catch (e) { return this.send(this.t.error(e.message)); } // to the owner, not a turn
+      if (msg.forwarded) this.markTainted('forwarded file');
+      if (t) this.submit(msg.forwarded ? `[Forwarded, written by someone else:]\n${t}` : t, msg.id);
+      return;
+    }
+    if (!text) return msg.unsupported || msg.audio || msg.file ? this.send(this.t.unsupported) : undefined;
     // A forwarded message is someone else's text: data, never an answer or a command.
     if (msg.forwarded) {
       this.markTainted('forwarded message');
@@ -165,7 +174,15 @@ export class Router {
 
   // --- approvals (called by the control API for every tool not pre-allowed) ---
 
-  async requestApproval({ tool_name, input = {} }) {
+  // Every yes (now or late) is reported to modules (hooks.approved), so a module that does the
+  // real send can demand a one-time ticket for exactly what the owner saw.
+  async requestApproval(request) {
+    const r = await this.decide(request);
+    if (r.allow) this.hooks.approved?.(request);
+    return r;
+  }
+
+  async decide({ tool_name, input = {} }) {
     const tainted = this.tainted();
     if (this.policy.autoAllow(tool_name, input, { tainted })) return { allow: true, reason: 'free' };
     const fromModule = await this.hooks.approve?.({ tool_name, input, tainted });

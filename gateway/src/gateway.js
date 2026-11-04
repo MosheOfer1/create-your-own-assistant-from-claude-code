@@ -31,6 +31,8 @@ export function hooksOf(modules) {
     command: async (text) => { for (const m of has('command')) { const r = await m.command(text); if (r) return r; } return null; },
     approve: async (req) => { for (const m of has('approve')) { const r = await m.approve(req); if (r) return r; } return null; },
     afterTurn: (text, r) => { for (const m of has('afterTurn')) m.afterTurn(text, r); },
+    approved: (req) => { for (const m of has('approved')) m.approved(req); },
+    media: has('media').length ? async (msg) => { for (const m of has('media')) { const r = await m.media(msg); if (r) return r; } return null; } : null,
     describers: modules.flatMap((m) => m.describers || []),
   };
 }

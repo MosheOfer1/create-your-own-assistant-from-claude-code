@@ -9,12 +9,16 @@
     "node": ">=22"
   },
   "scripts": {
-    "start": "node src/index.js",
-    "cli": "node bin/cli.js",
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "cli": "node --disable-warning=ExperimentalWarning bin/cli.js",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "7.0.0-rc14",
-    "pino": "10.4.0"
+    "imapflow": "2.10.0",
+    "mailparser": "3.14.1",
+    "nodemailer": "10.3.1",
+    "pino": "10.4.0",
+    "playwright-core": "1.64.1"
   }
 }

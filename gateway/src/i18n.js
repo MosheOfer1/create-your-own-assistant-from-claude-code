@@ -23,6 +23,10 @@ const STRINGS = {
     waLoggedOut: '⚠️ WhatsApp logged the assistant out. Open the assistant\'s setup and link WhatsApp again (a new pairing code). Tip: open WhatsApp on the assistant\'s phone at least every 14 days.',
     waDown: '⚠️ The assistant has had no WhatsApp connection for 10 minutes. I keep trying. Is the machine online?',
     waBack: '✅ WhatsApp is connected again.',
+    voiceOff: '🎤 Voice notes are not set up yet. Please write text.',
+    voiceLong: (min) => `🎤 The recording is longer than ${min} minutes. Please split it or write.`,
+    voiceEmpty: '🎤 I heard no speech in the recording.',
+    fileBig: (mb) => `📎 The file is bigger than ${mb} MB.`,
   },
   he: {
     ask: (id, what) => `🔐 בקשה #${id}\n${what}\n\nלענות: כן / לא`,
@@ -45,6 +49,10 @@ const STRINGS = {
     waLoggedOut: '⚠️ וואטסאפ ניתק את העוזר. צריך לחבר אותו מחדש בהקמה (קוד צימוד חדש). טיפ: לפתוח את וואטסאפ בטלפון של העוזר לפחות פעם ב-14 יום.',
     waDown: '⚠️ אין לעוזר חיבור לוואטסאפ כבר 10 דקות. אני ממשיך לנסות. המחשב מחובר לרשת?',
     waBack: '✅ וואטסאפ מחובר שוב.',
+    voiceOff: '🎤 הודעות קוליות עוד לא מוגדרות. תכתוב לי טקסט.',
+    voiceLong: (min) => `🎤 ההקלטה ארוכה מ-${min} דקות. תחלק אותה או תכתוב.`,
+    voiceEmpty: '🎤 לא שמעתי דיבור בהקלטה.',
+    fileBig: (mb) => `📎 הקובץ גדול מ-${mb} MB.`,
   },
 };
 

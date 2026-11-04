@@ -10,3 +10,6 @@ Each line: what to check, and what it needs.
 | 2 | Owner via LID chat is recognised; reply goes back to the same chat | Same |
 | 2 | Logout (remove the linked device) → alert on Telegram | Same, plus a Telegram bot |
 | 2 | Telegram: "/start <code>" pairs; reactions and typing work | A Telegram bot token from @BotFather |
+| 3 | Email: search, read, draft in a real Gmail; send asks, then goes; hourly triage alerts once | A test Gmail with an app password |
+| 3 | Voice note → whisper.cpp transcript → turn | whisper.cpp + a model on the host (setup installs them) |
+| 3 | Brain in an existing Obsidian vault with git: commits after changes, push when asked | A test vault repo |

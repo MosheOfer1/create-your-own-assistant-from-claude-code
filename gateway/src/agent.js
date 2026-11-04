@@ -65,7 +65,9 @@ export class Agent {
     return [
       '--model', model || this.config.model,
       '--tools', (this.config.tools || ['default']).join(','),
-      '--append-system-prompt', systemPrompt(this.config, this.promptExtra),
+      // A module's prompt may be a function (the brain's core facts): read each turn. When it
+      // changes, the arguments change and the warm process restarts with the new prompt.
+      '--append-system-prompt', systemPrompt(this.config, this.promptExtra.map((p) => (typeof p === 'function' ? p() : p)).filter(Boolean)),
       '--mcp-config', this.mcpConfig, '--strict-mcp-config',
       ...(readOnly ? ['--permission-prompts', 'none'] : ['--permission-prompt-tool', APPROVE_TOOL]),
       '--allowedTools', ...this.allowedTools,
