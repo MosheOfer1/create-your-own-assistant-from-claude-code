@@ -212,6 +212,18 @@ function repoKey(owner) {
   const url = asBot('git', ['-C', repo, 'remote', 'get-url', 'origin']);
   const m = /github\.com[:/]([\w.-]+\/[\w.-]+?)(\.git)?$/.exec(url);
   if (!m) return `repo: not on GitHub (${url}); pulls use its remote as is`;
+  // A machine set up over SSH (remote.js) has no gh: your clone already pulls and pushes with a
+  // deploy key made there. The assistant gets a copy of that key instead of one of its own.
+  const ownerKey = path.join(userHome(owner), '.ssh', 'assistant_repo');
+  if (!ok('runuser', ['-u', owner, '--', 'gh', '--version']) && fs.existsSync(ownerKey)) {
+    asBot('rm', ['-f', key, `${key}.pub`]);
+    giveBot(ownerKey, key);
+    giveBot(`${ownerKey}.pub`, `${key}.pub`);
+    asBot('chmod', ['600', key]);
+    asBot('git', ['-C', repo, 'remote', 'set-url', 'origin', `git@github.com:${m[1]}.git`]);
+    asBot('git', ['-C', repo, 'config', 'core.sshCommand', `ssh -i ${key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`]);
+    return `repo ${m[1]}: the deploy key of your clone (no gh here)`;
+  }
   const pub = publicKey(asBot('cat', [`${key}.pub`]));
   // gh runs as you. The key goes in a fresh folder (mkdtemp: a name no one can guess or plant
   // first), handed to you, removed after.
