@@ -35,21 +35,18 @@ export function moduleFile(name, { root = ROOT, repoDir = path.join(BASE, 'repo'
 // skip: top names that do not count. skills/synced: the account's own skills, synced down by
 // Claude (the agent runs with --disable-slash-commands, agent.js, so they never load).
 // plugins/plugin-directory-cache*.json: the CLI's catalog of plugins, nothing installed.
-// plugins/synced: account plugins that carry skills only (their manifest, meta files and a
-// skills/ folder) are as harmless; one with a plugin.json, hooks, MCP servers or agents counts.
+// plugins/synced: plugins the Claude account syncs down by itself. Each is fine only while
+// disabled in settings.json ("<name>@synced": false, set by `claude plugin disable --all`).
 const SKIP = { skills: /^synced$/, plugins: /^plugin-directory-cache.*\.json$/ };
-function pluginsOnlySynced(dir) {
-  const rest = fs.readdirSync(dir).filter((n) => !n.startsWith('.') && n !== 'synced' && !SKIP.plugins.test(n));
-  return !rest.length && syncedPluginsSafe(path.join(dir, 'synced'));
+function readJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } }
+// Names of the synced plugins: plugins/synced/<account>/<id>/.claude-plugin/plugin.json.
+export function syncedPlugins(dir) {
+  const ls = (d) => { try { return fs.readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => path.join(d, e.name)); } catch { return []; } };
+  return ls(path.join(dir, 'synced')).flatMap(ls).filter((d) => fs.readdirSync(d).length).map((d) => readJson(path.join(d, '.claude-plugin', 'plugin.json'))?.name || '?');
 }
-function syncedPluginsSafe(dir) {
-  const ok = (rel) => /^[^/]+\/(manifest\.json|[^/]+\.meta\.json|[^/]+\/skills\/.+)$/.test(rel);
-  const walk = (d, rel = '') => {
-    let list;
-    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return true; }
-    return list.every((e) => e.name.startsWith('.') || (e.isDirectory() ? walk(path.join(d, e.name), rel + e.name + '/') : e.isFile() && ok(rel + e.name)));
-  };
-  return walk(dir);
+function pluginsOnlySynced(dir, enabled = {}) {
+  const rest = fs.readdirSync(dir).filter((n) => !n.startsWith('.') && n !== 'synced' && !SKIP.plugins.test(n));
+  return !rest.length && syncedPlugins(dir).every((n) => enabled[`${n}@synced`] === false);
 }
 function hasFiles(dir, depth = 6, skip = null) {
   let list;
@@ -61,12 +58,15 @@ function hasFiles(dir, depth = 6, skip = null) {
 export function userClaudeDirty(dir) {
   const has = (f) => fs.existsSync(path.join(dir, f));
   if (has('CLAUDE.md')) return 'a CLAUDE.md';
-  if (['skills', 'agents', 'commands', 'plugins', 'hooks'].some((d) => hasFiles(path.join(dir, d), 6, SKIP[d]) && !(d === 'plugins' && pluginsOnlySynced(path.join(dir, d))))) return 'skills, agents, commands, plugins or hooks';
+  const enabled = readJson(path.join(dir, 'settings.json'))?.enabledPlugins || {};
+  const pl = path.join(dir, 'plugins');
+  const pluginsBad = fs.existsSync(pl) && (hasFiles(pl, 6, SKIP.plugins) || syncedPlugins(pl).length) && !pluginsOnlySynced(pl, enabled);
+  if (pluginsBad || ['skills', 'agents', 'commands', 'hooks'].some((d) => hasFiles(path.join(dir, d), 6, SKIP[d]))) return 'skills, agents, commands, plugins or hooks';
   for (const f of ['settings.json', 'settings.local.json']) {
     if (!has(f)) continue;
     let s;
     try { s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return `an unreadable ${f}`; }
-    if (s.hooks || s.permissions?.allow?.length || s.enabledPlugins || s.mcpServers || s.apiKeyHelper || s.env) return `settings in ${f}`;
+    if (s.hooks || s.permissions?.allow?.length || Object.values(s.enabledPlugins || {}).some((v) => v !== false) || s.mcpServers || s.apiKeyHelper || s.env) return `settings in ${f}`;
   }
   return null;
 }
@@ -76,6 +76,11 @@ export function userClaudeDirty(dir) {
 // mcp__claude_ai_Google_Drive. From `claude mcp list` (no model call). null when it fails.
 export function parseConnectors(out) {
   return [...String(out).matchAll(/^claude\.ai (.+?): /gm)].map((m) => `mcp__claude_ai_${m[1].replace(/ /g, '_')}`);
+}
+export function disableSyncedPlugins(log = console.log, run = execFile) {
+  return new Promise((resolve) => run('claude', ['plugin', 'disable', '--all', '--scope', 'user'], { timeout: 60_000 }, (err) => {
+    if (err) log('google: could not disable the synced plugins'); resolve();
+  }));
 }
 export function listConnectors(run = execFile) {
   return new Promise((resolve) => run('claude', ['mcp', 'list'], { timeout: 90_000 }, (err, out) => resolve(err ? null : parseConnectors(out))));
@@ -131,6 +136,8 @@ export async function createGateway({ config, channel, modules, agentFactory, lo
   // claude.ai connectors (the google module) need the user's own settings: only as its own user.
   // And only while that ~/.claude stays clean: no CLAUDE.md, no allow rules, hooks or plugins.
   const wants = config.ownUser && modules.some((m) => m.claudeAi);
+  // Plugins the account syncs down (creative-claw …) would load too: off for this user.
+  if (wants && syncedPlugins(path.join(os.homedir(), '.claude', 'plugins')).length) await (config.disablePlugins || disableSyncedPlugins)(log);
   const dirty = wants && (userClaudeDirty(path.join(os.homedir(), '.claude')) || userMcpServers(path.join(os.homedir(), '.claude.json')));
   if (dirty) log(`google: connectors off: ~/.claude of this user has ${dirty}. Remove it to use them.`);
   let claudeAi = wants && !dirty;
