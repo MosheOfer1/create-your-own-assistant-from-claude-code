@@ -118,7 +118,7 @@ export async function main([cmd, ...rest]) {
     try { execFileSync('gh', ['repo', 'create', `${user}/${rest[1]}`, '--private', '--description', 'My assistant: settings and second brain'], { stdio: 'pipe' }); } catch (e) { if (!/already exists/i.test(String(e.stderr))) throw e; }
     execFileSync('gh', ['repo', 'clone', `${user}/${rest[1]}`, REPO], { stdio: 'pipe' });
     const conf = read(path.join(BASE, 'config.json'), {});
-    conf.modules = { ...conf.modules, brain: { ...(conf.modules?.brain || {}), dir: path.join(REPO, 'brain'), push: true } };
+    conf.modules = { ...conf.modules, brain: { ...(conf.modules?.brain || {}), dir: 'repo/brain', push: true } }; // relative: it moves with the assistant
     write(path.join(REPO, 'config.json'), conf);
     fs.mkdirSync(path.join(REPO, 'brain', 'memory'), { recursive: true });
     fs.writeFileSync(path.join(REPO, 'brain', 'README.md'), '# Second brain\n\nNotes and facts the assistant keeps. Open this folder in Obsidian if you like.\n');

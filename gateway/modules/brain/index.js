@@ -1,11 +1,15 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BASE } from '../../src/config.js';
 import { Brain } from './store.js';
 
 // The second brain module. Options (config.modules.brain):
-//   dir: the Markdown folder (default <agentCwd>/brain; point it at an existing Obsidian vault)
+//   dir: the Markdown folder (default <agentCwd>/brain; point it at an existing Obsidian vault).
+//        A relative dir is inside the assistant's folder ("repo/brain"), so it still holds after
+//        the assistant moves to another machine or to its own user.
 //   when the folder (or its parent) is a git repo, each change is committed (commit: false turns it off);
 //   push: true → also pushed
 //   recallChars (1500), coreChars (1500)
@@ -15,7 +19,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const norm = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 export default function brainModule(config, { exec = execFile, log = console.log } = {}) {
-  const dir = config.dir || path.join(config.agentCwd, 'brain');
+  const dir = config.dir ? path.resolve(BASE, config.dir.replace(/^~(?=$|\/)/, os.homedir())) : path.join(config.agentCwd, 'brain');
   const brain = new Brain({ dir, dbFile: path.join(config.dataDir, 'brain.sqlite') });
   const recent = []; // the owner's last messages: a rule must quote one of them
   let timer = null;

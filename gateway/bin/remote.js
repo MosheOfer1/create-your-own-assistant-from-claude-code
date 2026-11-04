@@ -17,7 +17,7 @@ const USAGE = `Usage: remote.js COMMAND USER@HOST [--key FILE] [--version TAG] [
   install   Node ${NODE} (if older, checked against nodejs.org's SHASUMS256.txt), the public repo at
             --version (default: its newest release tag vX.Y.Z; main only if it has none), npm ci,
             Chromium, the private repo (--repo, via a deploy key made on the machine), config and
-            secrets, the service
+            secrets, the WhatsApp link made in setup (stop the gateway here first), the service
   login     prints the one command the user runs to log Claude in on the machine (interactive)
   own-user  prints the one command that moves the assistant to its own user there (sudo, interactive)
   logs [N]  the service's last log lines`;
@@ -148,6 +148,14 @@ export function main([cmd, host, ...rest]) {
     // config and secrets over stdin, 0600 on the other side.
     for (const [local, dest] of [[path.join(BASE, 'config.json'), '.assistant/config.json'], [path.join(BASE, 'data', '.env'), '.assistant/data/.env']]) {
       if (fs.existsSync(local)) remote(host, key, `umask 077; cat > "$HOME/${dest}"; exit 0`, fs.readFileSync(local, 'utf8'));
+    }
+    // The WhatsApp link made here in setup (step 8) moves too, so the machine needs no new pairing.
+    // Only one place may use a link: stop the gateway here first (the caller says so).
+    const wa = path.join(BASE, 'data', 'whatsapp-auth');
+    if (fs.existsSync(wa)) {
+      const tar = execFileSync('tar', ['-czf', '-', '-C', path.dirname(wa), 'whatsapp-auth'], { maxBuffer: 64 << 20 });
+      execFileSync('ssh', [...sshArgs(host, key), 'umask 077; mkdir -p "$HOME/.assistant/data" && tar -xzf - -C "$HOME/.assistant/data"'], { input: tar, stdio: ['pipe', 'pipe', 'pipe'] });
+      out.push('whatsapp: link copied');
     }
     const node = /node: (.+)/.exec(out[0])?.[1] || 'node';
     out.push(remote(host, key, `export PATH="$HOME/.local/opt/node22/bin:$HOME/.local/bin:$PATH"; ${node} "$HOME/.assistant/app/gateway/bin/service.js" install`).trim());
