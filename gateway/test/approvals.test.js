@@ -151,11 +151,15 @@ test('describe shows a Bash command in full', () => {
 
 test('describe: files, other tools, long input and describers', () => {
   const t = strings('en');
-  assert.equal(describe('Write', { file_path: '/a/b.md' }, t), `${t.changeFile} /a/b.md`);
-  assert.equal(describe('NotebookEdit', { notebook_path: '/a/b.ipynb' }, t), `${t.changeFile} /a/b.ipynb`);
+  // A file change shows what goes in, not only the path (M4).
+  assert.equal(describe('Write', { file_path: '/a/b.md', content: 'hi' }, t), `${t.changeFile} /a/b.md\n\`\`\`hi\`\`\``);
+  assert.equal(describe('Edit', { file_path: '/a/b.md', old_string: 'x', new_string: 'y' }, t), `${t.changeFile} /a/b.md\n− \`\`\`x\`\`\`\n+ \`\`\`y\`\`\``);
+  assert.match(describe('MultiEdit', { file_path: '/a', edits: [{ old_string: 'p', new_string: 'q' }] }, t), /− ```p```\n\+ ```q```/);
+  assert.equal(describe('NotebookEdit', { notebook_path: '/a/b.ipynb', new_source: 'z' }, t), `${t.changeFile} /a/b.ipynb\n\`\`\`z\`\`\``);
   assert.equal(describe('mcp__x__do', { a: 1 }, t), 'mcp__x__do\n{"a":1}');
-  const cut = describe('mcp__x__do', { a: 'y'.repeat(3000) }, t);
-  assert.ok(cut.endsWith('…') && cut.length < 1600);
+  // Never cut: a long request is refused by the router instead.
+  const long = describe('mcp__x__do', { a: 'y'.repeat(3000) }, t);
+  assert.ok(long.includes('y'.repeat(3000)));
   const describers = [() => null, (tool, input) => (tool === 'Bash' ? `custom ${input.command}` : null)];
   assert.equal(describe('Bash', { command: 'ls' }, t, describers), 'custom ls');
   assert.ok(describe('Write', { file_path: '/f' }, t, describers).startsWith(t.changeFile));

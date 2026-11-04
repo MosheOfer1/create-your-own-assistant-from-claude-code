@@ -25,12 +25,12 @@ function cfg(extra = {}) {
 }
 
 describe('loadConfig(): ownUser and freeShell', () => {
-  test('ASSISTANT_OWN_USER=1 and no freeShell in the config: freeShell true, ownUser true', () => {
+  test('ASSISTANT_OWN_USER=1 and no freeShell in the config: freeShell stays off, ownUser true', () => {
     cfg();
     process.env.ASSISTANT_OWN_USER = '1';
     const c = loadConfig();
     assert.equal(c.ownUser, true);
-    assert.equal(c.freeShell, true);
+    assert.equal(c.freeShell, false);
     assert.equal(c.ownerName, 'Dana');
   });
 

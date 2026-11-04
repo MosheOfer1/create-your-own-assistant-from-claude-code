@@ -28,7 +28,7 @@ export const DEFAULTS = {
   contextMaxK: 90, // a new conversation when one step reads more tokens than this
   approvalTimeoutMin: 10, // then a request is parked
   approvalHoldHours: 24, // and a late yes still counts this long
-  freeShell: false, // true only when the gateway runs as its own user: plain commands run without asking
+  freeShell: false, // true: plain commands run without asking (a trusted mode, see docs/security.md)
   lockHost: false, // true on a shared machine: the agent's file tools stay out of system and other folders
   channels: { cli: {} },
   modules: {},
@@ -41,10 +41,10 @@ export const configFile = () => process.env.ASSISTANT_CONFIG
 export function loadConfig(file = configFile()) {
   const own = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   const config = { ...DEFAULTS, ...own };
-  // As its own user (bin/own-user.js: other homes hidden, code read-only) the shell is free by
-  // default: plain commands run without asking; real changes and anything after outside text ask.
+  // freeShell stays off by default, also as its own user: the agent's commands run as the same
+  // user as the gateway, so a free command could read the gateway's secrets (.env, the WhatsApp
+  // keys, the control token) or rewrite config.json. The owner may turn it on knowingly.
   config.ownUser = process.env.ASSISTANT_OWN_USER === '1';
-  if (config.ownUser && own.freeShell === undefined) config.freeShell = true;
   for (const k of ['dataDir', 'agentCwd']) config[k] = path.resolve(config[k].replace(/^~(?=$|\/)/, os.homedir()));
   const env = path.join(config.dataDir, '.env');
   if (fs.existsSync(env)) process.loadEnvFile(env);

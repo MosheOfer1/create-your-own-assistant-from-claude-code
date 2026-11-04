@@ -53,7 +53,7 @@ export default function reminders(config) {
     allowed: ['mcp__schedule__remind', 'mcp__schedule__list', 'mcp__schedule__cancel'],
     routes: { '/schedule': api },
     prompt: '## Reminders\nFor "remind me" use mcp__schedule__remind; for something to do or check later use mcp__schedule__task. Times are the owner\'s local time.',
-    describers: [(tool, input) => (tool === 'mcp__schedule__task' ? `⏰ Scheduled task (${input.when || `in ${input.in_minutes} min`}${input.repeat && input.repeat !== 'none' ? `, ${input.repeat}` : ''}):\n${String(input.prompt || '').slice(0, 300)}` : null)],
+    describers: [(tool, input) => (tool === 'mcp__schedule__task' ? `⏰ Scheduled task (${input.when || `in ${input.in_minutes} min`}${input.repeat && input.repeat !== 'none' ? `, ${input.repeat}` : ''}):\n${String(input.prompt || '')}` : null)],
     scheduler,
     api,
     start(r) { router = r; scheduler.start(); },

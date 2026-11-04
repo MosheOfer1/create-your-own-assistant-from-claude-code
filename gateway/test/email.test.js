@@ -325,7 +325,7 @@ describe('policy and approval wiring', () => {
     assert.equal(d('mcp__mail__read', {}), null);
     assert.equal(d('mcp__mail__send', { ...MAILIN, cc: 'c@x.com' }), '📧 Send an email to bob@example.com\nCc: c@x.com\nSubject: Hi\n\nMeet at noon');
     assert.match(d('mcp__mail__send', { body: 'x', reply_to_uid: 3 }), /^📧 Reply by email to \(nobody: will fail\)/);
-    assert.equal(d('mcp__mail__send', { to: 'a@b', body: 'z'.repeat(3000) }).length, '📧 Send an email to a@b\n\n'.length + 1500);
+    assert.equal(d('mcp__mail__send', { to: 'a@b', body: 'z'.repeat(3000) }).length, '📧 Send an email to a@b\n\n'.length + 3000); // the whole body: never a hidden tail
   });
 
   function routerFor(s) {

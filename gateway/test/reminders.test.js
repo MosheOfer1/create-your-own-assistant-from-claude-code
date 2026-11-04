@@ -300,7 +300,7 @@ describe('reminders module', () => {
     assert.equal(d('Bash', {}), null);
     assert.equal(d('mcp__schedule__task', { prompt: 'p', when: '2026-11-05 08:00' }), '⏰ Scheduled task (2026-11-05 08:00):\np');
     assert.equal(d('mcp__schedule__task', { prompt: 'p', in_minutes: 5, repeat: 'daily' }), '⏰ Scheduled task (in 5 min, daily):\np');
-    assert.match(d('mcp__schedule__task', { prompt: 'p'.repeat(500), in_minutes: 5, repeat: 'none' }), /^⏰ Scheduled task \(in 5 min\):\np{300}$/);
+    assert.match(d('mcp__schedule__task', { prompt: 'p'.repeat(500), in_minutes: 5, repeat: 'none' }), /^⏰ Scheduled task \(in 5 min\):\np{500}$/); // the whole prompt: never a hidden tail
     assert.equal(hooksOf([mod]).describers.length, 1);
   });
 });

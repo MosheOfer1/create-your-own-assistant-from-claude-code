@@ -140,7 +140,7 @@ export default function email(config, { makeImap, makeSmtp, now = Date.now, log 
     routes: { '/mail': api },
     prompt: `## Email\nThe owner's mailbox is ${config.user}. Use mcp__mail__search / read. Write drafts freely; mcp__mail__send asks the owner first. For a reply pass reply_to_uid as well as \`to\`.`,
     describers: [(tool, i) => (tool === 'mcp__mail__send'
-      ? `📧 ${i.reply_to_uid ? 'Reply by email' : 'Send an email'} to ${i.to || '(nobody: will fail)'}${i.cc ? `\nCc: ${i.cc}` : ''}${i.subject ? `\nSubject: ${i.subject}` : ''}\n\n${String(i.body || '').slice(0, 1500)}`
+      ? `📧 ${i.reply_to_uid ? 'Reply by email' : 'Send an email'} to ${i.to || '(nobody: will fail)'}${i.cc ? `\nCc: ${i.cc}` : ''}${i.subject ? `\nSubject: ${i.subject}` : ''}\n\n${String(i.body || '')}`
       : null)],
     approved({ tool_name, input }) { if (tool_name === 'mcp__mail__send') tickets.set(ticketKey(input), now() + 5 * 60_000); },
     api,

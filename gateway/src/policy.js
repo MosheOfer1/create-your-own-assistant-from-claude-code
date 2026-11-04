@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isReadOnly, realChange } from './commands.js';
+import { isReadOnly, netParts, realChange } from './commands.js';
+import { localUrl } from './net.js';
 
 // "Free inside, gated outside". Tools in ALLOWED run without asking. Everything else reaches
 // the gateway (mcp/approve.js), where autoAllow() decides in code; what it does not pass asks
@@ -25,6 +26,7 @@ export class Policy {
   // From then on strong actions ask until a new conversation: the text may carry instructions.
   untrusted(tool, input = {}) {
     if (this.untrustedRes.some((r) => r.test(tool))) return true;
+    if (tool === 'Bash') return outsideText(input.command);
     if (!['Read', 'Grep'].includes(tool) || !this.agentCwd) return false;
     // Files others sent land in <agentCwd>/inbox. Paths may be relative or hold "..";
     // a Grep over a folder above the inbox reads it too.
@@ -35,7 +37,7 @@ export class Policy {
 
   autoAllow(tool, input = {}, { tainted = false } = {}) {
     if (this.gated(tool)) return false;
-    if (tool === 'Bash') return isReadOnly(input.command) || (this.freeShell && !tainted && !realChange(input.command));
+    if (tool === 'Bash') return (isReadOnly(input.command) && quietNet(input.command, tainted)) || (this.freeShell && !tainted && !realChange(input.command));
     if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(tool)) return ownFile(input.file_path || input.notebook_path, this.agentCwd, this.root);
     if (tool === 'WebFetch') return !tainted || plainUrl(input.url);
     return this.free.some((f) => f(tool, input, { tainted }));
@@ -51,6 +53,22 @@ export function plainUrl(url = '') {
       && u.pathname.split('/').every((seg) => seg.length <= 30) && u.pathname.length <= 120;
   } catch { return false; }
 }
+
+// A read-only command's network use, judged like WebFetch: never this machine or the home
+// network; in a tainted conversation only curl of a plain address (nslookup <data>.evil and
+// ping carry data out in the name), else the owner is asked.
+function quietNet(command, tainted) {
+  const parts = netParts(command);
+  if (!parts) return false;
+  return parts.every(({ prog, urls }) => !urls.some(localUrl) && (!tainted || (prog === 'curl' && urls.every(plainUrl))));
+}
+
+// A shell command that brings in text someone else wrote: a file in the inbox, a web page
+// (curl, wget, a script's fetch), a cloned or pulled repo. Then the conversation is tainted,
+// as after WebFetch. With freeShell a script could still fetch in a way this misses (see
+// docs/security.md): that is why freeShell is off unless the owner turns it on.
+const OUTSIDE = /(^|[\s/'"=])inbox(\/|\s|$|['"])|https?:\/\/|\b(curl|wget|nc|ncat|telnet|lynx|w3m|links|aria2c|ftp)\b|\bgit\b[^|;&]*\b(clone|pull|fetch)\b|\b(urlopen|urllib|requests\.|fetch\(|http\.get|axios)/i;
+export const outsideText = (command = '') => OUTSIDE.test(String(command));
 
 const inside = (p, dir) => p === dir || p.startsWith(`${dir}${path.sep}`);
 const realOr = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
@@ -74,8 +92,11 @@ export function ownFile(file, agentCwd, codeRoot = '') {
 // reading a key and sending it out. Rules use an absolute path with a leading //.
 export function secretReadDeny({ root, home, dataDir }) {
   const rule = (p, all = true) => `Read(/${p}${all ? '/**' : ''})`;
-  return [rule(dataDir), rule(path.join(root, '.env'), false), rule(path.join(home, '.ssh')), rule(path.join(home, '.claude')),
-    rule(path.join(home, '.claude.json'), false), rule(path.join(home, '.config')), rule(path.join(home, '.gnupg'))];
+  const dirs = ['.ssh', '.claude', '.config', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.mozilla', '.thunderbird',
+    '.password-store', '.terraform.d', '.local/share', 'snap', 'Library'];
+  const files = ['.claude.json', '.netrc', '.npmrc', '.pypirc', '.git-credentials', '.bash_history', '.zsh_history', '.python_history', '.node_repl_history', '.psql_history', '.mysql_history'];
+  return [rule(dataDir), rule(path.join(root, '.env'), false),
+    ...dirs.map((d) => rule(path.join(home, d))), ...files.map((f) => rule(path.join(home, f), false))];
 }
 
 // WebFetch never reaches this machine or a cloud metadata service by name. Its rules can only

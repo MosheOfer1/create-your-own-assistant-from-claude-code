@@ -56,7 +56,8 @@ export default function brainModule(config, { exec = execFile, log = console.log
     }
     if (a.action === 'remember') {
       // A quote from the owner's own recent words makes it the owner's; only those can be rules.
-      const said = a.quote && norm(a.quote).length >= 3 && recent.some((m) => norm(m).includes(norm(a.quote)));
+      // At least a few words: "the" is in almost every message.
+      const said = a.quote && norm(a.quote).length >= 8 && norm(a.quote).includes(' ') && recent.some((m) => norm(m).includes(norm(a.quote)));
       if (a.type === 'rule' && !said) return { ok: false, error: 'a rule needs `quote`: the owner\'s exact words from this conversation' };
       const f = brain.addFact({ text: a.text, type: a.type, scope: a.scope, source: said ? 'owner' : 'agent' });
       commit();
@@ -97,8 +98,11 @@ export default function brainModule(config, { exec = execFile, log = console.log
 
   return {
     mcp: { brain: { command: process.execPath, args: ['--no-warnings', path.join(HERE, 'mcp.js')] } },
-    // The assistant's own memory: writing it reaches nobody, so it needs no approval.
-    allowed: ['search', 'remember', 'forget', 'note'].map((t) => `mcp__brain__${t}`),
+    // The assistant's own memory: writing it reaches nobody, so it needs no approval. After
+    // outside text (tainted) a write asks: a page could plant a "rule" that every later
+    // conversation then reads in its prompt.
+    allowed: ['mcp__brain__search'],
+    autoAllow: (tool, input, { tainted } = {}) => !tainted && /^mcp__brain__(remember|forget|note)$/.test(tool),
     routes: { '/brain': api },
     prompt: () => [`## Memory\nYour second brain is Markdown in ${dir} (the owner may read it in Obsidian). Use mcp__brain__search before saying you do not know something about the owner. `
       + 'Save lasting facts with mcp__brain__remember: preferences, people, projects. When the owner said it themselves, pass their exact words as `quote` (a rule, "always…" / "never…", needs one). Do not save one-off details.', core()].filter(Boolean).join('\n\n'),

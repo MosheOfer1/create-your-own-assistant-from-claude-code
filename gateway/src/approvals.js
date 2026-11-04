@@ -88,16 +88,20 @@ export class Approvals {
   }
 }
 
-// What a tool call will do, in one short block. Commands are shown in full: the owner must
-// never approve a tail they did not see (longer ones are refused, see SHOW_MAX).
+// What a tool call will do, in one block, always in full: the owner must never approve a tail
+// they did not see. A request whose text is longer than SHOW_MAX is refused (router.decide).
 export const SHOW_MAX = 3000;
+const block = (s) => `\`\`\`${s ?? ''}\`\`\``;
 export function describe(tool, input = {}, t, describers = []) {
   for (const d of describers) {
     const s = d(tool, input, t);
     if (s) return s;
   }
-  if (tool === 'Bash') return `${t.runCommand}\n\`\`\`${input.command || ''}\`\`\``;
-  if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(tool)) return `${t.changeFile} ${input.file_path || input.notebook_path}`;
-  const json = JSON.stringify(input);
-  return `${tool}\n${json.length > 1500 ? `${json.slice(0, 1500)}…` : json}`;
+  if (tool === 'Bash') return `${t.runCommand}\n${block(input.command)}`;
+  const file = `${t.changeFile} ${input.file_path || input.notebook_path}`;
+  if (tool === 'Write') return `${file}\n${block(input.content)}`;
+  if (tool === 'Edit') return `${file}\n− ${block(input.old_string)}\n+ ${block(input.new_string)}`;
+  if (tool === 'MultiEdit') return [file, ...(input.edits || []).map((e) => `− ${block(e.old_string)}\n+ ${block(e.new_string)}`)].join('\n');
+  if (tool === 'NotebookEdit') return `${file}\n${block(input.new_source)}`;
+  return `${tool}\n${JSON.stringify(input)}`;
 }

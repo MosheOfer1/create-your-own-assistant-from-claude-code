@@ -44,8 +44,12 @@ The gateway reads `<dataDir>/.env` (file mode 0600). The agent gets a filtered e
 
 ## Limits and known issues
 
-- `freeShell: true` lets plain shell commands run without asking. Use it only when the gateway
-  runs as its own user.
+- `freeShell: true` lets plain shell commands run without asking. It is a trusted mode: the agent
+  runs as the same user as the gateway, so a free command can read the gateway's secrets
+  (`data/.env`, the WhatsApp keys, the control token) and change `config.json`. The list of
+  commands that still ask is a deny list and can be bypassed. Turn it on only when you accept that.
+- The agent's `claude` loads no settings files (`--setting-sources ""`): not your `~/.claude`
+  (its CLAUDE.md, allow rules, hooks, plugins, skills), not a CLAUDE.md in its own folder.
 - `lockHost: true` is for shared machines. It blocks system folders and other folders for file tools.
 - After a restart, a turn cut off less than 15 minutes ago runs again once.
 - `WebFetch` is Claude's own tool. It is denied this machine and cloud metadata by name (`LOCAL_FETCH_DENY`); the browse module checks every address after DNS.

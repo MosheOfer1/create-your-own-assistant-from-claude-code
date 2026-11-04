@@ -284,6 +284,15 @@ test('a Bash command longer than SHOW_MAX is refused without asking', async () =
   assert.equal(s.approvals.pending().length, 0);
 });
 
+test('any request too long to show in full is refused, never cut (M4)', async () => {
+  const s = setup();
+  for (const [tool_name, input] of [['Write', { file_path: '/x/f', content: 'y'.repeat(SHOW_MAX + 400) }], ['mcp__x__do', { a: 'y'.repeat(SHOW_MAX + 400) }]]) {
+    const r = await s.router.requestApproval({ tool_name, input });
+    assert.equal(r.reason, 'too-long', tool_name);
+  }
+  assert.equal(s.channel.sent.length, 0);
+});
+
 test('a parked request is parked for the agent and announced to the owner', async () => {
   const s = setup({ timeoutMs: 10, holdMs: 2 * HOUR });
   const r = await s.router.requestApproval({ tool_name: 'mcp__x__do', input: { a: 1 } });

@@ -66,8 +66,8 @@ Run once with sudo: `sudo "$(command -v node)" ~/.assistant/app/gateway/bin/own-
 - Its config, private repo, data and folder are a copy of yours in `/home/assistant/.assistant`.
   Your own `~/.assistant` stays as a backup. Your user service stops (one gateway at a time).
 - `assistant.service` hides all other homes (`ProtectHome=tmpfs`), keeps the system read-only
-  (`ProtectSystem=strict`), and caps memory. Because of this, plain shell commands run without asking
-  (`freeShell` is on); real changes and anything after outside text still ask.
+  (`ProtectSystem=strict`), and caps memory. Shell commands that change things still ask
+  (`freeShell` stays off): the agent runs as the same user as the gateway and could read its secrets.
 - Its clone of the private repo gets its own deploy key. Your GitHub login stays yours.
 - A new `version`: the assistant writes `data/update-request.json`; `assistant-update.path` (root)
   checks out that tag, runs `npm ci` and restarts it. The assistant never runs sudo.

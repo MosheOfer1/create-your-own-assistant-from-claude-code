@@ -199,8 +199,12 @@ export class Router {
     if (tool_name === 'Bash' && String(input.command || '').length > SHOW_MAX) {
       return { allow: false, reason: 'too-long', message: `The command is longer than ${SHOW_MAX} characters, too long for the owner to read. Put it in a script file in your folder and ask to run that.` };
     }
+    const what = describe(tool_name, input, this.t, this.hooks.describers);
+    if (what.length > SHOW_MAX + 300) { // room for the header lines around a full-size command
+      return { allow: false, reason: 'too-long', message: `This request is longer than ${SHOW_MAX} characters, too long for the owner to read in full. Make it shorter (for a file: write it in your folder first, or in smaller parts).` };
+    }
     const note = tainted && this.policy.autoAllow(tool_name, input) ? this.t.taint : '';
-    return this.ask({ tool_name, input }, note + describe(tool_name, input, this.t, this.hooks.describers));
+    return this.ask({ tool_name, input }, note + what);
   }
 
   async ask(request, what) {
