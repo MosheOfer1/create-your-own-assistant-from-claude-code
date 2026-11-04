@@ -32,17 +32,21 @@ export function moduleFile(name, { root = ROOT, repoDir = path.join(BASE, 'repo'
 
 // A real file somewhere below (a skill, a plugin, a hook). Empty folders and hidden bookkeeping
 // entries do not count: Claude makes plugins/synced/<account>/ and a .bucket-… by itself at login.
-function hasFiles(dir, depth = 6) {
+// skip: top names that do not count. skills/synced: the account's own skills, synced down by
+// Claude (the agent runs with --disable-slash-commands, agent.js, so they never load).
+// plugins/plugin-directory-cache*.json: the CLI's catalog of plugins, nothing installed.
+const SKIP = { skills: /^synced$/, plugins: /^plugin-directory-cache.*\.json$/ };
+function hasFiles(dir, depth = 6, skip = null) {
   let list;
   try { list = fs.readdirSync(dir, { withFileTypes: true }); } catch { return false; }
-  return list.some((e) => !e.name.startsWith('.') && (e.isFile() || e.isSymbolicLink() || (e.isDirectory() && depth > 0 && hasFiles(path.join(dir, e.name), depth - 1))));
+  return list.some((e) => !e.name.startsWith('.') && !skip?.test(e.name) && (e.isFile() || e.isSymbolicLink() || (e.isDirectory() && depth > 0 && hasFiles(path.join(dir, e.name), depth - 1))));
 }
 
 // What in a ~/.claude would reach the agent once user settings load: null when nothing.
 export function userClaudeDirty(dir) {
   const has = (f) => fs.existsSync(path.join(dir, f));
   if (has('CLAUDE.md')) return 'a CLAUDE.md';
-  if (['skills', 'agents', 'commands', 'plugins', 'hooks'].some((d) => hasFiles(path.join(dir, d)))) return 'skills, agents, commands, plugins or hooks';
+  if (['skills', 'agents', 'commands', 'plugins', 'hooks'].some((d) => hasFiles(path.join(dir, d), 6, SKIP[d]))) return 'skills, agents, commands, plugins or hooks';
   for (const f of ['settings.json', 'settings.local.json']) {
     if (!has(f)) continue;
     let s;

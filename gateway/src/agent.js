@@ -15,7 +15,8 @@ const ISOLATE = ['--setting-sources', ''];
 // The claude.ai connectors (Gmail, Calendar, Drive) load only with the user's settings and
 // without --strict-mcp-config. Only for a gateway that runs as its own user: its ~/.claude is
 // its own (bin/own-user.js copies the login, nothing else) and the agent cannot write there.
-const WITH_CONNECTORS = ['--setting-sources', 'user'];
+// No skills or commands either: the account syncs its own skills into ~/.claude/skills/synced.
+const WITH_CONNECTORS = ['--setting-sources', 'user', '--disable-slash-commands'];
 
 // What Claude and every command it runs may see of the environment: what the CLI needs,
 // never the gateway's own secrets (channel tokens, mail passwords).

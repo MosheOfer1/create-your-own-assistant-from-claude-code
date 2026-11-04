@@ -109,3 +109,15 @@ test('only the named claude.ai connectors stay; the rest are denied', () => {
   assert.deepEqual(all, ['mcp__claude_ai_Gmail', 'mcp__claude_ai_creative-claw', 'mcp__claude_ai_xhostd_Easy_Deployment', 'mcp__claude_ai_Google_Drive']);
   assert.deepEqual(connectorDeny(all, ['Gmail', 'Google Drive']), ['mcp__claude_ai_creative-claw', 'mcp__claude_ai_xhostd_Easy_Deployment']);
 });
+
+test('userClaudeDirty: skills the account syncs (skills/synced) do not count', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cl-'));
+  fs.mkdirSync(path.join(dir, 'skills/synced/acct/web'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'skills/synced/acct/web/SKILL.md'), 'x');
+  fs.mkdirSync(path.join(dir, 'plugins/synced/acct'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'plugins/plugin-directory-cache-v2.json'), '{}');
+  fs.writeFileSync(path.join(dir, 'plugins/cache.json'), '{}');
+  assert.equal(userClaudeDirty(dir), 'skills, agents, commands, plugins or hooks');
+  fs.rmSync(path.join(dir, 'plugins/cache.json'));
+  assert.equal(userClaudeDirty(dir), null);
+});
