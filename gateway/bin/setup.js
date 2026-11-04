@@ -152,11 +152,15 @@ export async function main([cmd, ...rest]) {
     const authDir = path.join(BASE, 'data', 'whatsapp-auth');
     if (fs.existsSync(path.join(authDir, 'creds.json')) && read(path.join(authDir, 'creds.json'), {}).registered) return 'already linked';
     const wa = new WhatsAppChannel({ ...c, authDir, log: () => {}, onPairingCode: (code) => console.log(`pairing code: ${code}`) });
+    // Kept alive on purpose: after the code is typed WhatsApp closes the link (515, "restart required")
+    // and the channel reconnects on an unref'd timer; without this the process would exit first.
+    const keep = setInterval(() => {}, 1000);
     const r = await new Promise((resolve) => {
       wa.onStatus = (s) => { if (s === 'open' || s === 'logged-out') resolve(s); };
-      setTimeout(() => resolve('timeout'), 10 * 60_000).unref();
+      setTimeout(() => resolve('timeout'), 10 * 60_000);
       wa.start(() => {});
     });
+    clearInterval(keep);
     wa.stop();
     log(`whatsapp link: ${r}`);
     return r === 'open' ? 'linked' : r;
@@ -176,5 +180,5 @@ export async function main([cmd, ...rest]) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main(process.argv.slice(2)).then((out) => console.log(out), (e) => { console.error(`ERROR: ${String(e.message).split('\n')[0]}`); process.exit(1); });
+  main(process.argv.slice(2)).then((out) => { console.log(out); process.exit(0); }, (e) => { console.error(`ERROR: ${String(e.message).split('\n')[0]}`); process.exit(1); });
 }
