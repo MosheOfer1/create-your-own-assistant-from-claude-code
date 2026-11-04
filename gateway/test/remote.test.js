@@ -387,8 +387,18 @@ if [ -n "$out" ]; then cp "$src" "$out"; else cat "$src"; fi
     git('clone', '-q', origin, path.join(A, 'app'));
     const run = (version) => spawnSync('/bin/sh', ['-s'], { input: `set -e\nA='${A}'\n${checkoutScript(version)}\n`, encoding: 'utf8', env, timeout: 30000 });
     const head = () => git('-C', path.join(A, 'app'), 'rev-parse', 'HEAD');
-    return { at, run, head };
+    // A commit pushed after the machine cloned: the next install must take it.
+    const push = () => { git('-C', origin, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'later'); at.main = git('-C', origin, 'rev-parse', 'HEAD'); };
+    return { at, run, head, push };
   }
+
+  test('no release tag: a later commit on main is taken, not the main of the first clone', () => {
+    const g = repo(['latest']);
+    g.push();
+    const r = g.run();
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(g.head(), g.at.main);
+  });
 
   test('no --version: the newest release tag by number (v1.10.0 over v1.9.0), not main, not an rc', () => {
     const g = repo(['v1.2.0', 'v1.10.0', 'v1.9.0', 'v2.0.0-rc1', 'latest']);

@@ -78,7 +78,7 @@ fi`;
 // the repo has no release yet, and the output says so (main is whatever was pushed last).
 export const checkoutScript = (version) => `cd "$A/app" && git fetch -q --tags
 v=${version ? `'${safe('version', version)}'` : `$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+$' | head -n 1)`}
-if [ -z "$v" ]; then v=main; echo "version: main (the repo has no release tag yet)"; else echo "version: $v"; fi
+if [ -z "$v" ]; then v=origin/main; echo "version: main (the repo has no release tag yet)"; else echo "version: $v"; fi
 git checkout -q "$v"`;
 
 export const installScript = ({ version, repoUrl }) => `set -e
