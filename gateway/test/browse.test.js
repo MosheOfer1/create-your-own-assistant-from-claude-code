@@ -7,9 +7,14 @@ import { fileURLToPath } from 'node:url';
 import { after, before, describe, test } from 'node:test';
 import { promisify } from 'node:util';
 import { Browser } from '../modules/browse/browser.js';
-import { checkUrl, judge, privateIp, secretField } from '../modules/browse/guard.js';
+import { checkUrl, elementInfo, judge, privateIp, secretField } from '../modules/browse/guard.js';
 import browse from '../modules/browse/index.js';
+import { Approvals } from '../src/approvals.js';
+import { hooksOf } from '../src/gateway.js';
+import { strings } from '../src/i18n.js';
 import { Policy } from '../src/policy.js';
+import { Router } from '../src/router.js';
+import { MemoryState } from '../src/state.js';
 
 const run = promisify(execFile);
 const GATEWAY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,23 +27,39 @@ after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const lookupTo = (...addresses) => async () => addresses.map((address) => ({ address }));
 
-// A locator: count() and first() after .locator('visible=true').
-function fakeLocator({ count = 0, onClick, onFill, secret = false, evalCalls } = {}) {
+// A DOM element, enough for guard.secretField and guard.elementInfo. tag is upper case like the
+// DOM; form: a truthy object when the element belongs to a form; parent: what closest() returns.
+function fakeDom({ tag = 'A', attrs = {}, text = '', type, value, form = null, children = [], parent, doc } = {}) {
+  const el = {
+    tagName: tag, innerText: text, type: type ?? (tag === 'BUTTON' ? 'submit' : tag === 'INPUT' ? 'text' : undefined), value, form,
+    ownerDocument: doc || { getElementById: () => null },
+    getAttribute: (k) => (k in attrs ? attrs[k] : null),
+    closest: () => parent || el,
+    querySelectorAll: (sel) => (sel.startsWith('img')
+      ? children.filter((c) => ['alt', 'aria-label', 'title'].some((k) => c.getAttribute(k)))
+      : children.filter((c) => ['BUTTON', 'INPUT'].includes(c.tagName))),
+  };
+  return el;
+}
+
+// A locator: count() and first() after .locator('visible=true'). evaluate(fn) runs fn on `el`.
+function fakeLocator({ count = 0, onClick, onFill, secret = false, evalCalls, el: dom } = {}) {
+  const node = dom || fakeDom({ attrs: secret ? { type: 'password' } : {} });
   const el = {
     click: async (opts) => onClick?.(opts),
     fill: async (v) => onFill?.(v),
-    evaluate: async (fn) => { evalCalls?.push(fn); return typeof fn === 'function' ? fn({ getAttribute: (k) => (k === 'type' && secret ? 'password' : null) }) : undefined; },
+    evaluate: async (fn) => { evalCalls?.push(fn); return typeof fn === 'function' ? fn(node) : undefined; },
   };
   return { locator: (sel) => { assert.equal(sel, 'visible=true'); return { count: async () => count, first: () => el }; } };
 }
 
 // A page. `finders` maps the kind of lookup (role:link, role:button, label, text, placeholder, css)
-// to a locator; every lookup is logged in `calls` in order.
+// to a locator (called with the lookup's arguments); every lookup is logged in `calls` in order.
 function fakePage({ url = 'https://example.com/', title = 'Example', body = 'Hello Dana', finders = {}, closed = false } = {}) {
   const calls = [];
   const state = { url, title, body, closed };
   const empty = () => fakeLocator({ count: 0 });
-  const find = (kind, ...args) => { calls.push([kind, ...args]); return (finders[kind] || empty)(); };
+  const find = (kind, ...args) => { calls.push([kind, ...args]); return (finders[kind] || empty)(...args); };
   const page = {
     calls, state,
     goto: async (u, opts) => { calls.push(['goto', u, opts]); state.url = u; },
@@ -60,7 +81,7 @@ function fakePage({ url = 'https://example.com/', title = 'Example', body = 'Hel
     getByRole: (role, o) => find(`role:${role}`, o),
     getByText: (t, o) => find('text', t, o),
     getByLabel: (t, o) => find('label', t, o),
-    getByPlaceholder: (t) => find('placeholder', t),
+    getByPlaceholder: (t, o) => find('placeholder', t, o),
     locator: (sel) => find('css', sel),
   };
   return page;
@@ -258,9 +279,81 @@ describe('guard.judge', () => {
     assert.equal(judge(type, { target: 'Search', text: 'blue shirt' }, 'https://example.com/'), 'allow');
   });
 
-  test('tolerates missing input and missing key', () => {
+  test('tolerates missing input; a missing key asks (only movement keys are free)', () => {
     assert.equal(judge(click, undefined, ''), 'allow');
-    assert.equal(judge(press, {}, ''), 'allow');
+    assert.equal(judge(press, {}, ''), 'critical');
+  });
+
+  test('keys that can submit or act are critical: Control/Meta+Enter, Space, letters, Delete', () => {
+    for (const key of ['Control+Enter', 'Meta+Enter', 'Shift+Enter', 'NumpadEnter', 'Space', ' ', '#', 'e', 'Delete', 'Backspace', 'Control+s']) {
+      assert.equal(judge(press, { key }, 'https://mail.example.com/'), 'critical', key);
+    }
+    for (const key of ['Shift+Tab', 'PageDown', 'PageUp', 'Home', 'End', 'ArrowUp', 'arrowleft']) assert.equal(judge(press, { key }), 'allow', key);
+  });
+
+  test('the element found decides, not the agent\'s words: a submit button with a neutral name is critical', () => {
+    assert.equal(judge(click, { target: 'Go' }, '', { tag: 'button', name: 'Go', submits: true }), 'critical');
+    assert.equal(judge(click, { target: 'button[type=submit]' }, '', { tag: 'button', name: 'Continue', submits: true }), 'critical');
+    assert.equal(judge(click, { target: '#x' }, '', { tag: 'div', role: 'button', name: 'Send ‪(Ctrl-Enter)‬', submits: false }), 'critical');
+    assert.equal(judge(click, { target: 'Medium' }, '', { tag: 'a', name: 'Medium', submits: false }), 'allow');
+  });
+
+  test('type does not judge the field\'s name (filling does not submit), only the words', () => {
+    assert.equal(judge(type, { target: 'To', text: 'dana@example.com' }, '', { tag: 'input', name: 'Send to', submits: false }), 'allow');
+  });
+
+  test('send words in more languages', () => {
+    for (const target of ['إرسال', 'Отправить', 'Invia', 'Verzenden', 'Share', 'שתף']) assert.equal(judge(click, { target }), 'critical', target);
+  });
+
+  test('other step tools (select, upload, submit) are always critical', () => {
+    for (const t of ['select', 'upload', 'submit']) assert.equal(judge(`mcp__browse__${t}`, { target: 'Medium' }), 'critical', t);
+  });
+});
+
+// --- guard.elementInfo ---------------------------------------------------------------------
+
+describe('guard.elementInfo', () => {
+  const form = {};
+  test('a <button> in a form without a type submits (the DOM default), whatever its name', () => {
+    assert.deepEqual(elementInfo(fakeDom({ tag: 'BUTTON', text: 'Go', form })), { tag: 'button', role: '', name: 'Go', submits: true });
+  });
+  test('a type=button in a form, or a button outside any form, does not submit', () => {
+    assert.equal(elementInfo(fakeDom({ tag: 'BUTTON', type: 'button', text: 'Go', form })).submits, false);
+    assert.equal(elementInfo(fakeDom({ tag: 'BUTTON', text: 'Go' })).submits, false);
+  });
+  test('input type=submit / image in a form submits; its value is its name', () => {
+    const i = elementInfo(fakeDom({ tag: 'INPUT', type: 'submit', value: 'Weiter', form }));
+    assert.equal(i.submits, true);
+    assert.equal(i.name, 'Weiter');
+    assert.equal(elementInfo(fakeDom({ tag: 'INPUT', type: 'image', form })).submits, true);
+  });
+  test('a text input does not show its typed value as a name', () => {
+    assert.equal(elementInfo(fakeDom({ tag: 'INPUT', type: 'text', value: 'please send it', form })).name, '');
+  });
+  test('a span inside a button is judged as the button (closest)', () => {
+    const button = fakeDom({ tag: 'BUTTON', text: 'Send', form });
+    const i = elementInfo(fakeDom({ tag: 'SPAN', text: 'Se', parent: button }));
+    assert.equal(i.tag, 'button');
+    assert.equal(i.name, 'Send');
+    assert.equal(i.submits, true);
+  });
+  test('an icon button: aria-label, aria-labelledby and an inner img alt make the name', () => {
+    const doc = { getElementById: (id) => (id === 'l1' ? { textContent: 'Post now' } : null) };
+    const icon = fakeDom({ tag: 'IMG', attrs: { alt: 'Paper plane' } });
+    const i = elementInfo(fakeDom({ tag: 'DIV', attrs: { role: 'button', 'aria-label': 'Send', 'aria-labelledby': 'l1 missing' }, children: [icon], doc }));
+    assert.equal(i.role, 'button');
+    assert.equal(i.name, 'Send Post now Paper plane');
+  });
+  test('a wrapper that holds a submit button counts as submitting (a click hits its middle)', () => {
+    const inner = fakeDom({ tag: 'BUTTON', text: 'Go', form });
+    assert.equal(elementInfo(fakeDom({ tag: 'DIV', text: 'Go', children: [inner] })).submits, true);
+  });
+  test('a label clicks its control', () => {
+    const control = fakeDom({ tag: 'INPUT', type: 'submit', value: 'OK', form });
+    const label = fakeDom({ tag: 'LABEL', text: 'OK' });
+    label.control = control;
+    assert.equal(elementInfo(label).submits, true);
   });
 });
 
@@ -360,14 +453,69 @@ describe('Browser context route (navigation guard)', () => {
     assert.equal(x.r.continued, 1);
   });
 
-  test('continues a non-navigation request without even checking it', async () => {
-    let checked = 0;
-    const { capture, route } = await routed(async () => { checked++; return 'blocked'; });
-    const x = route('http://127.0.0.1/api.js', false);
+  // The real checkUrl, with DNS answers per host.
+  const dnsTo = (map) => (u) => checkUrl(u, { lookup: async (h) => (map[h] || ['93.184.216.34']).map((address) => ({ address })) });
+
+  for (const url of ['http://192.168.1.1/admin', 'http://127.0.0.1:8080/api', 'http://169.254.169.254/latest/meta-data/', 'http://[::1]:9222/json',
+    'https://router.example.com/x.png', 'https://localhost/x.js']) {
+    test(`a page's own request (image, script, fetch) to ${url} is aborted`, async () => {
+      const { capture, route } = await routed(dnsTo({ 'router.example.com': ['192.168.0.1'] }));
+      const x = route(url, false);
+      await capture.handler(x.route);
+      assert.equal(x.r.aborted, 'blockedbyclient');
+      assert.equal(x.r.continued, 0);
+    });
+  }
+
+  test('a page\'s request to a public host continues', async () => {
+    const { capture, route } = await routed(dnsTo({}));
+    const x = route('https://cdn.example.com/app.js', false);
     await capture.handler(x.route);
     assert.equal(x.r.continued, 1);
-    assert.equal(x.r.aborted, null);
+  });
+
+  test('data: and blob: requests need no check (no network)', async () => {
+    let checked = 0;
+    const { capture, route } = await routed(async () => { checked++; return 'blocked'; });
+    for (const u of ['data:image/png;base64,AAAA', 'blob:https://example.com/123']) {
+      const x = route(u, false);
+      await capture.handler(x.route);
+      assert.equal(x.r.continued, 1, u);
+    }
     assert.equal(checked, 0);
+  });
+
+  test('a check that throws aborts (fails closed)', async () => {
+    const { capture, route } = await routed(async () => { throw new Error('dns down'); });
+    for (const nav of [true, false]) {
+      const x = route('https://example.com/a', nav);
+      await capture.handler(x.route);
+      assert.equal(x.r.aborted, 'blockedbyclient');
+    }
+  });
+
+  test('page files: one check per origin for 30 s; page loads are checked every time', async () => {
+    const seen = [];
+    const capture = {};
+    const { b } = makeBrowser(fakePage(), { capture, check: async (u) => { seen.push(u); return null; } });
+    await b.context();
+    assert.equal(await b.checkHost('https://cdn.example.com/a.js', 1000), null);
+    await b.checkHost('https://cdn.example.com/b.css', 2000);
+    await b.checkHost('https://cdn.example.com:8443/c', 2000); // another origin
+    assert.equal(seen.length, 2);
+    await b.checkHost('https://cdn.example.com/d.js', 1000 + 31_000);
+    assert.equal(seen.length, 3);
+    const nav = { request: () => ({ isNavigationRequest: () => true, url: () => 'https://cdn.example.com/' }), abort: async () => {}, continue: async () => {} };
+    await capture.handler(nav);
+    await capture.handler(nav);
+    assert.equal(seen.length, 5);
+  });
+
+  test('credentials in a page file URL are refused (no lookup)', async () => {
+    const { capture, route } = await routed(checkUrl);
+    const x = route('https://dana:pw@example.com/x', false);
+    await capture.handler(x.route);
+    assert.equal(x.r.aborted, 'blockedbyclient');
   });
 });
 
@@ -384,6 +532,7 @@ describe('Browser modes', () => {
     assert.equal(f.log.launches[0].opts.headless, false);
     assert.equal(f.log.launches[0].opts.executablePath, '/opt/chrome');
     assert.deepEqual(f.log.launches[0].opts.viewport, { width: 1280, height: 900 });
+    assert.equal(f.log.launches[0].opts.serviceWorkers, 'block', 'a service worker\'s requests would skip the route');
     assert.ok(fs.statSync(profileDir).isDirectory());
     assert.equal(fs.statSync(profileDir).mode & 0o077, 0, 'profile dir is private');
   });
@@ -540,9 +689,55 @@ describe('Browser.click / find', () => {
     const page = fakePage();
     const { b } = makeBrowser(page);
     await assert.rejects(b.click('Medium'), /^Error: nothing visible matches "Medium"; look at links$/);
-    const kinds = page.calls.map((c) => c[0] + (c[0].startsWith('role') && c[1]?.exact ? ':exact' : ''));
-    assert.deepEqual(kinds, ['role:link:exact', 'role:button:exact', 'label', 'text', 'role:link', 'role:button', 'placeholder', 'label', 'text', 'css']);
+    assert.deepEqual(page.calls.map((c) => c[0]), ['role:link', 'role:button', 'label', 'text', 'placeholder', 'css']);
     assert.equal(page.calls[0][1].name, 'Medium');
+  });
+
+  test('every name lookup is exact (no loose part-of-name match)', async () => {
+    const page = fakePage();
+    const { b } = makeBrowser(page);
+    await assert.rejects(b.click('Medium'));
+    for (const c of page.calls.filter((x) => x[0] !== 'css')) assert.equal(c.at(-1)?.exact, true, c[0]);
+  });
+
+  test('click "Sen" does not click "Send" (Playwright\'s loose match would)', async () => {
+    const clicked = [];
+    // Like Playwright: exact compares the whole name, loose takes a part of it.
+    const send = (o) => fakeLocator({ count: (o.exact ? o.name === 'Send' : 'Send'.includes(o.name)) ? 1 : 0, onClick: () => clicked.push('Send') });
+    const page = fakePage({ finders: { 'role:button': send } });
+    const { b } = makeBrowser(page);
+    await assert.rejects(b.click('Sen'), /nothing visible matches "Sen"/);
+    assert.deepEqual(clicked, []);
+    await b.click('Send');
+    assert.deepEqual(clicked, ['Send']);
+  });
+
+  test('a guard sees the element found and can stop the click before it happens', async () => {
+    const clicked = [];
+    const el = fakeDom({ tag: 'BUTTON', text: 'Go', form: {} });
+    const page = fakePage({ finders: { css: () => fakeLocator({ count: 1, el, onClick: () => clicked.push('go') }) } });
+    const { b } = makeBrowser(page);
+    const seen = [];
+    await assert.rejects(b.click('button[type=submit]', { guard: (i) => { seen.push(i); return i.submits ? 'it submits' : null; } }), /^Error: refused: it submits$/);
+    assert.deepEqual(clicked, []);
+    assert.deepEqual(seen, [{ tag: 'button', role: '', name: 'Go', submits: true }]);
+  });
+
+  test('a guard fails closed when the element cannot be read', async () => {
+    const page = fakePage({ finders: { css: () => fakeLocator({ count: 1, el: { closest: () => { throw new Error('detached'); } } }) } });
+    const { b } = makeBrowser(page);
+    await assert.rejects(b.click('#x', { guard: () => null }), /refused: cannot read the element/);
+  });
+
+  test('the click goes to the element handle when there is one (pinned, not looked up again)', async () => {
+    const clicked = [];
+    const loc = fakeLocator({ count: 1, onClick: () => clicked.push('locator') });
+    const first = loc.locator('visible=true').first();
+    first.elementHandle = async () => ({ evaluate: first.evaluate, click: async () => clicked.push('handle') });
+    const page = fakePage({ finders: { 'role:link': () => ({ locator: () => ({ count: async () => 1, first: () => first }) }) } });
+    const { b } = makeBrowser(page);
+    await b.click('Medium');
+    assert.deepEqual(clicked, ['handle']);
   });
 
   test('stops at the first lookup with a visible element', async () => {
@@ -665,10 +860,10 @@ describe('browse module', () => {
     return { mod, page, f, dir };
   }
 
-  test('allowed is open/text/links/shot only', () => {
+  test('allowed is text/links/shot only: open must reach the gateway', () => {
     const { mod } = make();
-    assert.deepEqual(mod.allowed, ['mcp__browse__open', 'mcp__browse__text', 'mcp__browse__links', 'mcp__browse__shot']);
-    for (const t of ['click', 'type', 'press']) assert.ok(!mod.allowed.includes(`mcp__browse__${t}`));
+    assert.deepEqual(mod.allowed, ['mcp__browse__text', 'mcp__browse__links', 'mcp__browse__shot']);
+    for (const t of ['open', 'click', 'type', 'press']) assert.ok(!mod.allowed.includes(`mcp__browse__${t}`));
   });
 
   test('untrusted matches every mcp__browse__ tool and nothing else', () => {
@@ -679,58 +874,146 @@ describe('browse module', () => {
     assert.ok(!hit('Read'));
   });
 
-  test('autoAllow: click "Medium" yes; click "Submit order" no; press Enter no; press Tab yes', () => {
+  test('autoAllow passes only open: steps are judged on the live page by approve()', () => {
     const { mod } = make();
     mod.browser.url = 'https://shop.example.com/product/shirt';
-    assert.equal(mod.autoAllow('mcp__browse__click', { target: 'Medium' }), true);
-    assert.equal(mod.autoAllow('mcp__browse__click', { target: 'Submit order' }), false);
-    assert.equal(mod.autoAllow('mcp__browse__press', { key: 'Enter' }), false);
-    assert.equal(mod.autoAllow('mcp__browse__press', { key: 'Tab' }), true);
-    assert.equal(mod.autoAllow('mcp__browse__type', { target: 'Name', text: 'Dana' }), true);
-  });
-
-  test('autoAllow does not cover the other tools (open/text are in allowed; unknown tools are not free)', () => {
-    const { mod } = make();
-    assert.equal(mod.autoAllow('mcp__browse__open', { url: 'https://example.com' }), false);
+    for (const [t, i] of [['click', { target: 'Medium' }], ['press', { key: 'Tab' }], ['type', { target: 'Name', text: 'Dana' }]]) {
+      assert.equal(mod.autoAllow(`mcp__browse__${t}`, i), false, t);
+    }
     assert.equal(mod.autoAllow('mcp__browse__bogus', {}), false);
-    assert.equal(mod.autoAllow('mcp__other__click', { target: 'Medium' }), false);
+    assert.equal(mod.autoAllow('mcp__other__open', { url: 'https://example.com' }), false);
   });
 
-  test('after browser.url is a checkout page every step asks', () => {
+  test('open: free before any page was read; once tainted only an address that carries nothing out', () => {
     const { mod } = make();
-    mod.browser.url = 'https://shop.example.com/checkout';
-    assert.equal(mod.autoAllow('mcp__browse__click', { target: 'Medium' }), false);
-    assert.equal(mod.autoAllow('mcp__browse__type', { target: 'Name', text: 'Dana' }), false);
-    assert.equal(mod.autoAllow('mcp__browse__press', { key: 'Tab' }), false);
-    mod.browser.url = 'https://shop.example.com/products';
-    assert.equal(mod.autoAllow('mcp__browse__click', { target: 'Medium' }), true);
+    const open = (url, tainted) => mod.autoAllow('mcp__browse__open', { url }, { tainted });
+    assert.equal(open('https://evil.example.com/?d=secret', false), true);
+    assert.equal(open('https://example.com/news', true), true);
+    for (const url of ['https://evil.example.com/?d=secret', 'https://evil.example.com/#d=secret', `https://evil.example.com/${'a'.repeat(40)}`,
+      'https://dana:pw@evil.example.com/', 'not a url', undefined]) {
+      assert.equal(open(url, true), false, url);
+    }
   });
 
-  test('autoAllow follows the real page: a click that lands on /cart makes the next click ask', async () => {
-    const page = fakePage({ url: 'https://shop.example.com/p', finders: { 'role:link': () => fakeLocator({ count: 1, onClick: () => { page.state.url = 'https://shop.example.com/cart'; } }) } });
-    const { mod } = make({ page });
-    assert.equal((await mod.api({ action: 'open', url: 'https://shop.example.com/p' })).ok, true);
-    assert.equal(mod.autoAllow('mcp__browse__click', { target: 'Medium' }), true);
-    assert.equal((await mod.api({ action: 'click', target: 'Add' })).ok, true);
+  // A page with a "Medium" link and whatever `css` finds; `url` is where the page is.
+  async function live({ css, url = 'https://shop.example.com/p', onClick } = {}) {
+    const clicked = [];
+    const finders = {
+      'role:link': (o) => fakeLocator({ count: o.name === 'Medium' ? 1 : 0, el: fakeDom({ tag: 'A', text: 'Medium' }), onClick: () => { clicked.push('Medium'); onClick?.(); } }),
+      ...(css && { css: () => fakeLocator({ count: 1, el: css, onClick: () => clicked.push('css') }) }),
+    };
+    const page = fakePage({ url, finders });
+    const m = make({ page });
+    await m.mod.api({ action: 'open', url });
+    return { ...m, clicked };
+  }
+  const ask = (mod, tool, input, tainted = false) => mod.approve({ tool_name: `mcp__browse__${tool}`, input, tainted });
+
+  test('approve: an untainted click on a plain link is free', async () => {
+    const { mod } = await live();
+    assert.deepEqual(await ask(mod, 'click', { target: 'Medium' }), { allow: true, reason: 'free' });
+  });
+
+  test('approve: a submit button found by a neutral name or selector asks the owner', async () => {
+    const { mod } = await live({ css: fakeDom({ tag: 'BUTTON', text: 'Continue', form: {} }) });
+    assert.equal(await ask(mod, 'click', { target: 'button[type=submit]' }), null);
+    assert.match(mod.describers[0]('mcp__browse__click', { target: 'button[type=submit]' }), /Click "button\[type=submit\]" → button "Continue" \(submits a form\)$/);
+  });
+
+  test('approve: an icon button named Send by aria-label asks, though the selector is neutral', async () => {
+    const { mod } = await live({ css: fakeDom({ tag: 'DIV', attrs: { role: 'button', 'aria-label': 'Send' } }) });
+    assert.equal(await ask(mod, 'click', { target: 'div.T-I' }), null);
+  });
+
+  test('approve: in a tainted conversation every step asks, also a plain link', async () => {
+    const { mod } = await live();
+    for (const [t, i] of [['click', { target: 'Medium' }], ['type', { target: 'Search', text: 'shirts' }], ['press', { key: 'Tab' }]]) {
+      assert.equal(await ask(mod, t, i, true), null, t);
+    }
+    const t = strings('en');
+    assert.ok(mod.describers[0]('mcp__browse__click', { target: 'Medium' }, t).startsWith(t.taint), 'the owner sees why it asks');
+  });
+
+  test('approve: keys that can submit ask (Enter, Control+Enter, Meta+Enter); Tab is free', async () => {
+    const { mod } = await live();
+    for (const key of ['Enter', 'Control+Enter', 'Meta+Enter', 'Space']) assert.equal(await ask(mod, 'press', { key }), null, key);
+    assert.deepEqual(await ask(mod, 'press', { key: 'Tab' }), { allow: true, reason: 'free' });
+  });
+
+  test('approve: a checkout page makes every step ask; other tools are not its business', async () => {
+    const { mod } = await live({ url: 'https://shop.example.com/checkout' });
+    assert.equal(await ask(mod, 'click', { target: 'Medium' }), null);
+    assert.equal(await mod.approve({ tool_name: 'Bash', input: { command: 'ls' }, tainted: false }), null);
+  });
+
+  test('a click the approval step passed is judged again on the element at click time', async () => {
+    const send = fakeDom({ tag: 'BUTTON', text: 'Send', form: {} });
+    const { mod, page, clicked } = await live();
+    const input = { target: 'Medium' };
+    assert.equal((await ask(mod, 'click', input)).allow, true);
+    mod.approved({ tool_name: 'mcp__browse__click', input });
+    // The page swapped the link for a Send button in between.
+    const swapped = { 'role:link': () => fakeLocator({ count: 1, el: send, onClick: () => clicked.push('Send') }) };
+    page.getByRole = (role, o) => (swapped[`role:${role}`] || (() => fakeLocator()))(o);
+    const r = await mod.api({ action: 'click', ...input });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /^refused: this step acts \(submits a form, "Send"\), so the owner must approve it/);
+    assert.deepEqual(clicked, []);
+  });
+
+  test('a step the owner approved runs once without the second judgement', async () => {
+    const { mod, clicked } = await live({ css: fakeDom({ tag: 'BUTTON', text: 'Go', form: {} }) });
+    const input = { target: '#go' };
+    assert.equal(await ask(mod, 'click', input), null); // asks; the owner says yes:
+    mod.approved({ tool_name: 'mcp__browse__click', input });
+    assert.equal((await mod.api({ action: 'click', ...input })).ok, true);
+    assert.deepEqual(clicked, ['css']);
+    const again = await mod.api({ action: 'click', ...input }); // the yes was for one call
+    assert.equal(again.ok, false);
+    assert.match(again.error, /^refused: this step acts/);
+    assert.deepEqual(clicked, ['css']);
+  });
+
+  test('a step that reaches the route without any approval is judged too (press Control+Enter)', async () => {
+    const { mod, page } = await live();
+    const r = await mod.api({ action: 'press', key: 'Control+Enter' });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /^refused: this step acts/);
+    assert.equal(page.calls.some((c) => c[0] === 'press'), false);
+    assert.equal((await mod.api({ action: 'press', key: 'Tab' })).ok, true);
+  });
+
+  test('a click that lands on /cart makes the next click ask', async () => {
+    const { mod, page } = await live({ onClick: () => { page.state.url = 'https://shop.example.com/cart'; } });
+    assert.equal((await ask(mod, 'click', { target: 'Medium' })).allow, true);
+    assert.equal((await mod.api({ action: 'click', target: 'Medium' })).ok, true);
     assert.equal(mod.browser.url, 'https://shop.example.com/cart');
-    assert.equal(mod.autoAllow('mcp__browse__click', { target: 'Medium' }), false);
+    assert.equal(await ask(mod, 'click', { target: 'Medium' }), null);
   });
 
-  test('describers show the page URL and the target for click/type/press, null for others', () => {
+  test('approve does not start Chrome: with no page open it judges the words only', async () => {
+    const { mod, f } = make();
+    assert.deepEqual(await ask(mod, 'click', { target: 'Medium' }), { allow: true, reason: 'free' });
+    assert.equal(await ask(mod, 'click', { target: 'Send' }), null);
+    assert.equal(f.log.launches.length, 0);
+  });
+
+  test('describers show the page URL and the target for click/type/press, open\'s address, null for others', () => {
     const { mod } = make();
     mod.browser.url = 'https://shop.example.com/p';
     const d = mod.describers[0];
     assert.equal(d('mcp__browse__click', { target: 'Submit order' }), '⚠️🌐 https://shop.example.com/p\nClick "Submit order"');
     assert.equal(d('mcp__browse__type', { target: 'Note', text: 'Hi Dana' }), '⚠️🌐 https://shop.example.com/p\nType into "Note": Hi Dana');
     assert.equal(d('mcp__browse__press', { key: 'Enter' }), '⚠️🌐 https://shop.example.com/p\nPress Enter');
-    for (const t of ['open', 'text', 'links', 'shot', 'unknown']) assert.equal(d(`mcp__browse__${t}`, {}), null);
+    assert.equal(d('mcp__browse__open', { url: 'https://evil.example.com/?d=x' }), '⚠️🌐 Open https://evil.example.com/?d=x');
+    for (const t of ['text', 'links', 'shot', 'unknown']) assert.equal(d(`mcp__browse__${t}`, {}), null);
     assert.equal(d('Bash', { command: 'ls' }), null);
   });
 
-  test('describer cuts typed text at 200 characters', () => {
+  test('describer shows all the typed text: never a hidden tail', () => {
     const { mod } = make();
     const out = mod.describers[0]('mcp__browse__type', { target: 'Note', text: 'z'.repeat(500) });
-    assert.equal(out.split(': ')[1].length, 200);
+    assert.equal(out.split(': ')[1].length, 500);
   });
 
   test('has the /browse route, the mcp server entry, a prompt, and stop()', async () => {
@@ -833,9 +1116,10 @@ describe('browse module in Policy', () => {
     return { mod, p: new Policy({ agentCwd: path.join(dir, 'agent'), root: path.join(dir, 'code'), modules: [mod] }) };
   }
 
-  test('open/text/links/shot are plain allowed tools', () => {
+  test('text/links/shot are plain allowed tools; open and click are not', () => {
     const { p } = policy();
-    for (const t of ['open', 'text', 'links', 'shot']) assert.ok(p.allowed.includes(`mcp__browse__${t}`));
+    for (const t of ['text', 'links', 'shot']) assert.ok(p.allowed.includes(`mcp__browse__${t}`));
+    assert.ok(!p.allowed.includes('mcp__browse__open'));
     assert.ok(!p.allowed.includes('mcp__browse__click'));
   });
 
@@ -844,29 +1128,84 @@ describe('browse module in Policy', () => {
     for (const t of ['open', 'text', 'links', 'click', 'type', 'press', 'shot']) assert.equal(p.untrusted(`mcp__browse__${t}`, {}), true, t);
   });
 
-  test('click "Medium" is auto-allowed, also when tainted', () => {
+  test('no step is free in the sync policy check (approve() looks at the page)', () => {
     const { p } = policy();
-    assert.equal(p.autoAllow('mcp__browse__click', { target: 'Medium' }), true);
-    assert.equal(p.autoAllow('mcp__browse__click', { target: 'Medium' }, { tainted: true }), true);
+    for (const tainted of [false, true]) {
+      assert.equal(p.autoAllow('mcp__browse__click', { target: 'Medium' }, { tainted }), false);
+      assert.equal(p.autoAllow('mcp__browse__press', { key: 'Enter' }, { tainted }), false);
+    }
   });
 
-  test('click "Send" is not auto-allowed (tainted or not)', () => {
+  test('open: free untainted; tainted only a plain address', () => {
     const { p } = policy();
-    assert.equal(p.autoAllow('mcp__browse__click', { target: 'Send' }), false);
-    assert.equal(p.autoAllow('mcp__browse__click', { target: 'Send' }, { tainted: true }), false);
-  });
-
-  test('press Enter is not auto-allowed; on a checkout page nothing is', () => {
-    const { p, mod } = policy();
-    assert.equal(p.autoAllow('mcp__browse__press', { key: 'Enter' }, { tainted: true }), false);
-    mod.browser.url = 'https://shop.example.com/checkout';
-    assert.equal(p.autoAllow('mcp__browse__click', { target: 'Medium' }, { tainted: true }), false);
+    assert.equal(p.autoAllow('mcp__browse__open', { url: 'https://example.com/?q=1' }), true);
+    assert.equal(p.autoAllow('mcp__browse__open', { url: 'https://example.com/a' }, { tainted: true }), true);
+    assert.equal(p.autoAllow('mcp__browse__open', { url: 'https://evil.example.com/?d=secret' }, { tainted: true }), false);
   });
 
   test('the module does not make other tools free', () => {
     const { p } = policy();
     assert.equal(p.autoAllow('Bash', { command: 'rm -rf x' }), false);
-    assert.equal(p.autoAllow('mcp__browse__open', { url: 'https://example.com' }), false); // allowed list, not autoAllow
+  });
+});
+
+// --- Module + Router (the real approval path) ------------------------------------------------
+
+describe('browse module with the Router', () => {
+  let n = 0;
+  function setup({ finders = {} } = {}) {
+    const dir = path.join(tmp, `router-${n++}`);
+    const page = fakePage({ url: 'https://mail.example.com/', finders });
+    const mod = browse({ dataDir: path.join(dir, 'data'), agentCwd: path.join(dir, 'agent') }, { chromium: fakeChromium(page).chromium, check: allowAll });
+    const modules = [{ name: 'browse', ...mod }];
+    const state = new MemoryState();
+    const channel = { sent: [], async send(x) { this.sent.push(x); return 'id'; }, async react() {}, async typing() {} };
+    const approvals = new Approvals({ timeoutMs: 5000, store: state });
+    const policy = new Policy({ agentCwd: path.join(dir, 'agent'), root: path.join(dir, 'code'), modules });
+    const router = new Router({ config: { language: 'en', batchMs: 0 }, state, approvals, policy, agent: {}, channel, hooks: hooksOf(modules), log: () => {} });
+    return { mod, page, router, approvals, channel };
+  }
+  // The owner's answer to the next waiting approval.
+  async function answer(s, decision) {
+    for (let i = 0; i < 100 && !s.approvals.waiting().length; i++) await new Promise((r) => setTimeout(r, 2));
+    const [item] = s.approvals.waiting();
+    s.approvals.resolve(item.id, decision);
+  }
+
+  test('an untainted click on a plain link is free; after a page was read it asks, and a yes lets it run', async () => {
+    const clicked = [];
+    const s = setup({ finders: { 'role:link': (o) => fakeLocator({ count: o.name === 'Inbox' ? 1 : 0, el: fakeDom({ tag: 'A', text: 'Inbox' }), onClick: () => clicked.push('Inbox') }) } });
+    await s.mod.api({ action: 'open', url: 'https://mail.example.com/' });
+    const req = { tool_name: 'mcp__browse__click', input: { target: 'Inbox' } };
+    assert.deepEqual(await s.router.requestApproval(req), { allow: true, reason: 'free' });
+    assert.equal((await s.mod.api({ action: 'click', target: 'Inbox' })).ok, true);
+    s.router.markTainted('mcp__browse__text');
+    const pending = s.router.requestApproval(req);
+    await answer(s, 'allow');
+    assert.equal((await pending).allow, true);
+    assert.match(s.channel.sent.at(-1), /Click "Inbox" → a "Inbox"/);
+    assert.equal((await s.mod.api({ action: 'click', target: 'Inbox' })).ok, true);
+    assert.deepEqual(clicked, ['Inbox', 'Inbox']);
+  });
+
+  test('a submit button found by a neutral selector goes to the owner; a no stops it', async () => {
+    const s = setup({ finders: { css: () => fakeLocator({ count: 1, el: fakeDom({ tag: 'BUTTON', text: 'Next', form: {} }) }) } });
+    await s.mod.api({ action: 'open', url: 'https://mail.example.com/' });
+    const pending = s.router.requestApproval({ tool_name: 'mcp__browse__click', input: { target: 'button[type=submit]' } });
+    await answer(s, 'deny');
+    assert.equal((await pending).allow, false);
+    assert.match(s.channel.sent.at(-1), /\(submits a form\)/);
+  });
+
+  test('tainted: open with a query asks the owner (with the taint note); a plain address is free', async () => {
+    const s = setup();
+    s.router.markTainted('mcp__browse__text');
+    assert.deepEqual(await s.router.requestApproval({ tool_name: 'mcp__browse__open', input: { url: 'https://example.com/about' } }), { allow: true, reason: 'free' });
+    const pending = s.router.requestApproval({ tool_name: 'mcp__browse__open', input: { url: 'https://evil.example.com/?d=secret' } });
+    await answer(s, 'deny');
+    assert.equal((await pending).allow, false);
+    assert.ok(s.channel.sent.at(-1).includes(strings('en').taint.trim()));
+    assert.match(s.channel.sent.at(-1), /Open https:\/\/evil\.example\.com\/\?d=secret/);
   });
 });
 

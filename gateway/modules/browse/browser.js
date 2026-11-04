@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { checkUrl, secretField } from './guard.js';
+import { checkUrl, elementInfo, secretField } from './guard.js';
 
 // A Chromium with a persistent profile (one per identity, so logins stay and identities never
 // mix). In the gateway it runs inside the process over a pipe: no debugging port another
@@ -24,6 +24,7 @@ const LINKS = `() => [...document.querySelectorAll('a,button,[role=button],[role
   .filter((s, i, a) => s && a.indexOf(s) === i)`;
 const BOT = /radware|verifying you are human|verifying your browser|just a moment|attention required|captcha|are you a robot|unusual traffic/i;
 const LOGIN = /accounts\.google\.com|\/signin|\/login|\/challenge|servicelogin|\/auth\//i;
+const HOST_TTL_MS = 30_000;
 
 // Playwright's Chromium if installed, else a system Chrome.
 export async function chromePath(env = process.env) {
@@ -44,6 +45,7 @@ export class Browser {
     Object.assign(this, { profileDir, executablePath, headless, proxy, check, cdpUrl });
     this.chromium = chromium;
     this.url = '';
+    this.hosts = new Map(); // origin → { why: Promise<reason|null>, until }
   }
 
   async context() {
@@ -57,17 +59,40 @@ export class Browser {
       this.ctx = await this.chromium.launchPersistentContext(this.profileDir, {
         headless: this.headless, executablePath: this.executablePath, viewport: { width: 1280, height: 900 },
         args: ['--disable-blink-features=AutomationControlled'], ...(this.proxy && { proxy: { server: this.proxy } }),
+        // A service worker's own requests skip the route below (Playwright issue 1090).
+        serviceWorkers: 'block',
       });
     }
-    // Every page load (also redirects and links the page opens) must go to a public address.
-    await this.ctx.route('**/*', async (route) => {
-      const req = route.request();
-      if (!req.isNavigationRequest()) return route.continue();
-      const why = await this.check(req.url());
-      return why ? route.abort('blockedbyclient') : route.continue();
-    });
+    // Every request must go to a public address: page loads, redirects and links the page opens,
+    // and also its images, scripts and fetch() calls. Else a page could make this browser reach
+    // the home network, this machine or a cloud metadata service for it.
+    await this.ctx.route('**/*', (route) => this.screen(route));
     this.ctx.on('close', () => { this.ctx = null; this.pg = null; });
     return this.ctx;
+  }
+
+  async screen(route) {
+    const req = route.request();
+    const url = req.url();
+    if (/^(data|blob):/i.test(url)) return route.continue(); // inside the page, no network
+    const why = await (req.isNavigationRequest() ? this.check(url) : this.checkHost(url)).catch(() => 'the address check failed');
+    return why ? route.abort('blockedbyclient') : route.continue();
+  }
+
+  // The check for a page's files: one DNS lookup per origin for a short time, because a page
+  // loads hundreds of files from a few hosts. Page loads keep a fresh check each time.
+  checkHost(url, now = Date.now()) {
+    let key;
+    try {
+      const u = new URL(url);
+      key = `${u.username || u.password ? 'creds:' : ''}${u.protocol}//${u.host}`;
+    } catch { return this.check(url); }
+    const hit = this.hosts.get(key);
+    if (hit && hit.until > now) return hit.why;
+    if (this.hosts.size > 500) this.hosts.clear();
+    const why = Promise.resolve().then(() => this.check(url));
+    this.hosts.set(key, { why, until: now + HOST_TTL_MS });
+    return why;
   }
 
   // Logins made in the visible window (bin/chrome-step.js) arrive as <profileDir>.import.json:
@@ -137,11 +162,12 @@ export class Browser {
     return out.filter((l) => !word || l.toLowerCase().includes(word.toLowerCase())).slice(0, 200).join('\n') || 'no match';
   }
 
-  // The first VISIBLE element by link/button name, then text, then CSS.
+  // The first VISIBLE element by exact link/button name, label, text or placeholder, then CSS.
+  // Exact only: Playwright's loose match takes a part of the name, so "Sen" would find "Send".
   async find(p, target) {
+    const exact = { exact: true };
     const tries = [() => p.getByRole('link', { name: target, exact: true }), () => p.getByRole('button', { name: target, exact: true }),
-      () => p.getByLabel(target, { exact: true }), () => p.getByText(target, { exact: true }), () => p.getByRole('link', { name: target }),
-      () => p.getByRole('button', { name: target }), () => p.getByPlaceholder(target), () => p.getByLabel(target), () => p.getByText(target), () => p.locator(target)];
+      () => p.getByLabel(target, exact), () => p.getByText(target, exact), () => p.getByPlaceholder(target, exact), () => p.locator(target)];
     for (const make of tries) {
       try {
         const loc = make().locator('visible=true');
@@ -151,25 +177,53 @@ export class Browser {
     throw new Error(`nothing visible matches "${target}"; look at links`);
   }
 
-  async click(target) {
+  // What target points at now (elementInfo), for the approval step. Never starts Chrome.
+  async inspect(target) {
+    if (!this.pg || this.pg.isClosed() || target == null) return null;
+    const el = await this.find(this.pg, String(target)).catch(() => null);
+    return el ? el.evaluate(elementInfo).catch(() => null) : null;
+  }
+
+  // guard(info) → a reason to stop, or null. It sees the element the step will really act on,
+  // so a page that changed after the approval step cannot slip a Send button in.
+  async guarded(guard, el) {
+    if (!guard) return;
+    const info = el ? await el.evaluate(elementInfo).catch(() => null) : null;
+    if (el && !info) throw new Error('refused: cannot read the element, so this step needs the owner');
+    const why = guard(info);
+    if (why) throw new Error(`refused: ${why}`);
+  }
+
+  // The element itself, not a locator: a locator looks again on click, and the page may have
+  // swapped what it finds in between.
+  async pinned(p, target) {
+    const loc = await this.find(p, target);
+    return (await loc.elementHandle?.({ timeout: 2000 }).catch(() => null)) || loc;
+  }
+
+  async click(target, { guard } = {}) {
     const p = await this.page();
     const before = p.url();
-    await (await this.find(p, target)).click({ timeout: 10000 });
+    const el = await this.pinned(p, target);
+    await this.guarded(guard, el);
+    await el.click({ timeout: 10000 });
     await p.waitForURL((u) => String(u) !== before, { timeout: 2500 }).catch(() => {});
     await this.settle(p);
     return `clicked; now ${p.url()}\n${await this.wall(p)}`.trim();
   }
 
-  async type(target, text) {
+  async type(target, text, { guard } = {}) {
     const p = await this.page();
-    const el = await this.find(p, target);
+    const el = await this.pinned(p, target);
     if (await el.evaluate(secretField)) throw new Error('refused: a password, card or code field. The owner types those themselves.');
+    await this.guarded(guard, el);
     await el.fill(String(text));
     return 'typed';
   }
 
-  async press(key) {
+  async press(key, { guard } = {}) {
     const p = await this.page();
+    await this.guarded(guard, null);
     await p.keyboard.press(key);
     await this.settle(p, 5000);
     return `pressed ${key}; now ${p.url()}`;

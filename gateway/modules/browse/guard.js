@@ -3,9 +3,11 @@ import net from 'node:net';
 
 // The browser's rules, in code:
 // - Only public http(s) pages: never this machine, the home network, a VPN range or a cloud
-//   metadata service, also after DNS (a public name can point at 127.0.0.1).
+//   metadata service, also after DNS (a public name can point at 127.0.0.1). Pages, and every
+//   file or fetch() a page asks for (browser.js routes them all).
 // - Never type into a password or card field: logins happen in a visible window by the owner.
-// - A step that really does something (send, pay, book, order, submit) asks the owner.
+// - A step that really does something (send, pay, book, order, submit) asks the owner. It is
+//   judged by the element the click really hits, not by the agent's words.
 
 const PRIVATE4 = [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12],
   ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4]];
@@ -45,14 +47,50 @@ export function secretField(el) {
   return a('type') === 'password' || /cc-|card.?num|cardnumber|cvv|cvc|csc|security.?code|one-time-code|otp|\bpin\b|iban|password|passwd|סיסמ|כרטיס|קוד אבטחה/.test(all);
 }
 
-// Words of a step that acts for real, in several languages.
-const CRITICAL = /\b(send|submit|pay|buy|order|book|checkout|purchase|confirm|place order|subscribe|sign up|delete|transfer|donate|publish|post)\b|שלח|שליחה|תשלום|לתשלום|לשלם|קנ[הי]|רכיש|הזמ[ןנ]|לאשר|אישור|מחק|פרסם|העבר|enviar|pagar|comprar|reservar|envoyer|payer|acheter|réserver|senden|bezahlen|kaufen|buchen/i;
+// What a click really hits, read in the page (Playwright serialises it, so it uses nothing from
+// this file). The agent's words are not enough: `click "Sen"` or `click "button[type=submit]"`
+// can land on "Send". So the gateway judges the control around the element: its visible name
+// (also an icon's aria-label or alt) and whether a click submits a form.
+export function elementInfo(el) {
+  let c = el.closest('button,input,select,textarea,a,label,summary,[role=button],[role=link],[role=menuitem],[role=tab],[role=option]') || el;
+  if (c.tagName === 'LABEL' && c.control) c = c.control; // a click on a label clicks its control
+  const attr = (k) => c.getAttribute(k) || '';
+  const tag = c.tagName.toLowerCase();
+  const byId = attr('aria-labelledby').split(/\s+/).filter(Boolean).map((id) => c.ownerDocument?.getElementById(id)?.textContent || '');
+  const inner = [...c.querySelectorAll('img[alt],[aria-label],[title]')].map((e) => e.getAttribute('alt') || e.getAttribute('aria-label') || e.getAttribute('title'));
+  const shown = tag === 'input' && ['submit', 'button', 'image', 'reset'].includes(c.type) ? c.value || '' : '';
+  const name = [attr('aria-label'), ...byId, c.innerText || c.textContent || '', shown, attr('title'), attr('data-tooltip'), ...inner]
+    .join(' ').replace(/\s+/g, ' ').trim();
+  // A <button> without a type is a submit button; .form also covers form="id" outside the form.
+  // A wrapper counts by what it holds: Playwright clicks its middle, which may be the button.
+  const submitter = (e) => ['BUTTON', 'INPUT'].includes(e.tagName) && !!e.form && ['submit', 'image'].includes(e.type);
+  const submits = submitter(c) || [...c.querySelectorAll('button,input[type=submit],input[type=image]')].some(submitter);
+  return { tag, role: attr('role'), name, submits };
+}
+
+// Words of a step that acts for real, in several languages. Only a hint for a page the
+// conversation has not read: a button can have any name. Once a page was read every step asks
+// anyway (index.js).
+const CRITICAL = new RegExp([
+  '\\b(send|submit|pay|buy|order|book|checkout|purchase|confirm|place order|subscribe|sign up|delete|trash|transfer|donate|publish|post|share|invite',
+  'enviar|pagar|comprar|reservar|envoyer|payer|acheter|réserver|senden|bezahlen|kaufen|buchen|invia|paga|acquista|prenota|verzenden|versturen|betalen|kopen)\\b',
+  'שלח|שליחה|תשלום|לתשלום|לשלם|קנ[הי]|רכיש|הזמ[ןנ]|לאשר|אישור|מחק|פרסם|העבר|שתף',
+  'إرسال|ارسال|أرسل|ادفع|دفع|شراء|اشتر|احجز|حذف|نشر|отправ|оплат|купить|заказ|удалить|опубликовать',
+].join('|'), 'i');
 const CRITICAL_PAGE = /checkout|payment|\/pay\b|\/cart|billing|kupa|tashlum/i;
 
-// 'allow' | 'critical' for a browser step, from its target text and the current page URL.
-export function judge(tool, input = {}, pageUrl = '') {
-  const what = `${input.target || ''} ${input.text || ''}`;
-  if (tool.endsWith('__press') && /^(enter|return)$/i.test(String(input.key || ''))) return 'critical'; // Enter submits forms
+// Keys that only move around the page. Every other key may act: Enter submits a form,
+// Control/Meta+Enter sends in Gmail, Space presses the focused button, a letter is a shortcut
+// ("#" deletes in Gmail), Delete removes.
+const MOVE_KEY = /^((shift\+)?tab|escape|home|end|pageup|pagedown|arrow(up|down|left|right))$/i;
+
+// 'allow' | 'critical' for a browser step, from the agent's words, the current page URL and,
+// for a click, the element it really hits (elementInfo, when known).
+export function judge(tool, input = {}, pageUrl = '', el = null) {
   if (CRITICAL_PAGE.test(pageUrl)) return 'critical';
-  return CRITICAL.test(what) ? 'critical' : 'allow';
+  if (tool.endsWith('__press')) return MOVE_KEY.test(String(input.key ?? '').trim()) ? 'allow' : 'critical';
+  if (!/__(click|type)$/.test(tool)) return 'critical'; // select, upload, submit: always the owner
+  const click = tool.endsWith('__click');
+  if (click && el?.submits) return 'critical';
+  return CRITICAL.test(`${input.target || ''} ${input.text || ''} ${click ? el?.name || '' : ''}`) ? 'critical' : 'allow';
 }
