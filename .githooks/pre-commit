@@ -1,0 +1,3 @@
+#!/bin/sh
+# Block commits that contain your private strings (see scripts/scrub-scan.mjs).
+exec node scripts/scrub-scan.mjs --staged --allow-missing

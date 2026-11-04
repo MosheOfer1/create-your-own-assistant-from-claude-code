@@ -7,3 +7,5 @@ data/
 .DS_Store
 # never commit the personal scrub list
 scrub-patterns*.txt
+# git worktrees of local agent sessions
+.claude/worktrees/
