@@ -13,15 +13,29 @@ import { Brain } from './store.js';
 //   when the folder (or its parent) is a git repo, each change is committed (commit: false turns it off);
 //   push: true → also pushed
 //   recallChars (1500), coreChars (1500)
+//   learnIdleMin (15; 0 = off): after that long without a message, a small model with no tools
+//   reads the owner's own messages since the last time and proposes lasting facts; code checks them.
 // Core = the owner's own rules and preferences, in the system prompt. Recall = other matching
 // facts and notes, added before a turn only when something matches.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+// Never into memory: passwords, codes, long numbers (cards, accounts).
+const SECRET = /passw|סיסמ|token|api[-_ ]?key|\b\d{11,}\b|\b(?:\d[ -]?){13,19}\b/i;
+const LEARN = `You keep the long-term memory of a personal assistant. From the owner's messages below, list the lasting facts
+worth remembering: a preference, a standing rule for the assistant ("always…", "never…", "from now on…"), a person and how
+they relate to the owner, a project, a lasting fact about their life. NOT: one-off requests, today's details, small talk,
+anything already in KNOWN FACTS, secrets (passwords, codes, card or account numbers).
+One idea per fact, one short sentence in the owner's language, self-contained (names, not "he"), absolute dates.
+Answer with JSON only: [{"text": "...", "type": "fact|preference|rule|person|project", "scope": "one or two words",
+"quote": "the owner's exact words it comes from, copied from the messages"}]. Nothing worth keeping: [].`;
 const norm = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 export default function brainModule(config, { exec = execFile, log = console.log } = {}) {
   const dir = config.dir ? path.resolve(BASE, config.dir.replace(/^~(?=$|\/)/, os.homedir())) : path.join(config.agentCwd, 'brain');
   const brain = new Brain({ dir, dbFile: path.join(config.dataDir, 'brain.sqlite') });
   const recent = []; // the owner's last messages: a rule must quote one of them
+  const pending = []; // the owner's messages not yet read for facts (learn)
+  let router = null;
+  let learnTimer = null;
   let timer = null;
 
   // Changes become a commit after a quiet 30 s (and a push if asked).
@@ -107,6 +121,15 @@ export default function brainModule(config, { exec = execFile, log = console.log
       .replace(/\[Forwarded[^\]]*\]\n?(«[\s\S]*?»|[\s\S]*?(?=\n\n|$))/g, '');
     recent.push(own.slice(0, 2000));
     if (recent.length > 6) recent.shift();
+    // Only what the owner wrote: not a scheduled task, the brief or a resumed turn (their prompts
+    // start with "[…"), never pages, mails or the assistant's replies (they may carry injected text).
+    if (own.trim() && !/^\[(Scheduled task|Morning brief|Restarted)/.test(own.trim())) {
+      pending.push(own.slice(0, 2000));
+      if (pending.length > 40) pending.shift();
+      clearTimeout(learnTimer);
+      const idle = config.learnIdleMin ?? 15;
+      if (idle > 0) { learnTimer = setTimeout(() => learn().catch((e) => log(`brain: learn failed: ${e.message}`)), idle * 60_000); learnTimer.unref?.(); }
+    }
     const coreIds = new Set(brain.facts().filter((f) => f.source === 'owner' && ['rule', 'preference'].includes(f.type)).map((f) => `memory/facts.md#${f.id}`));
     let out = '';
     for (const h of brain.search(text, 8)) {
@@ -116,6 +139,36 @@ export default function brainModule(config, { exec = execFile, log = console.log
       out += line;
     }
     return out && `[From your memory (background; may be outdated):\n${out.trim()}]`;
+  }
+
+  // The owner's own words since the last time → lasting facts. The model proposes; code decides:
+  // a known type, short, no secrets, not already known; a rule only with the owner's exact words.
+  async function learn() {
+    const said = pending.splice(0);
+    if (!said.length || !router?.agent?.plain) return 0;
+    const known = brain.facts().slice(-100).map((f) => `- ${f.text}`).join('\n') || '(none)';
+    const r = await router.agent.plain({ prompt: `${LEARN}\n\nKNOWN FACTS:\n${known}\n\nTHE OWNER'S MESSAGES:\n${said.map((m, i) => `#${i + 1} ${m}`).join('\n')}` });
+    if (r.isError) throw new Error(r.text);
+    const json = /\[[\s\S]*\]/.exec(r.text)?.[0];
+    let list = [];
+    try { list = JSON.parse(json || '[]'); } catch { return 0; }
+    const all = said.map(norm).join(' \n ');
+    const have = brain.facts().map((f) => norm(f.text));
+    let added = 0;
+    for (const f of Array.isArray(list) ? list.slice(0, 10) : []) {
+      const text = String(f?.text || '').trim();
+      const type = ['fact', 'preference', 'rule', 'person', 'project'].includes(f?.type) ? f.type : null;
+      if (!type || !text || text.length > 200 || SECRET.test(text)) continue;
+      if (have.some((h) => h === norm(text) || h.includes(norm(text)))) continue;
+      const q = norm(f.quote);
+      const quoted = q.length >= 8 && q.includes(' ') && all.includes(q);
+      if (type === 'rule' && !quoted) continue;
+      brain.addFact({ text, type, scope: String(f.scope || '-'), source: quoted ? 'owner' : 'agent' });
+      have.push(norm(text));
+      added++;
+    }
+    if (added) { commit(); log(`brain: learned ${added} fact(s)`); }
+    return added;
   }
 
   return {
@@ -132,7 +185,8 @@ export default function brainModule(config, { exec = execFile, log = console.log
     command,
     brain,
     api,
-    start() { brain.sync(); },
-    stop() { clearTimeout(timer); brain.close(); },
+    start(r) { router = r; brain.sync(); },
+    learn,
+    stop() { clearTimeout(timer); clearTimeout(learnTimer); brain.close(); },
   };
 }

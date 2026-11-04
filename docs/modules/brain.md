@@ -5,6 +5,11 @@ vault works. The files are the truth. A SQLite index (`<dataDir>/brain.sqlite`) 
 
 ## What it does
 
+- Learning: after `learnIdleMin` minutes (15) without a message, a small model with no tools reads
+  your own messages since the last time and proposes lasting facts. Code keeps only known types,
+  short ones, no secrets, nothing already known; a rule only with your exact words. Forwarded text,
+  pages, mails and the assistant's own replies are never read for this. `learnIdleMin: 0` turns it off.
+
 - Chat commands, with no turn: `memory` / `זיכרון` lists the saved facts (`(?)` = not in your own words),
   `forget 3` / `תשכח 3` removes one.
 
