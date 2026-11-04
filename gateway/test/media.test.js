@@ -330,3 +330,17 @@ describe('Router with the media hook', () => {
     assert.ok(s.channel.sent.includes('Error: download failed'));
   });
 });
+
+test('an audio file sent as a document (an mp3) is heard like a voice note; a big one is only saved', async () => {
+  const heard = [];
+  const transcriber = { name: 'fake', transcribe: async (b, m) => { heard.push(m); return 'hello there'; } };
+  const mod = media({ agentCwd: tmp(), dataDir: tmp(), language: 'en' }, { transcriber, log: nolog });
+  mod.start({ sent: [], async send(x) { this.sent.push(x); } });
+  mod.stop();
+  const doc = (o) => ({ text: '', file: { name: 'rec.mp3', mimetype: 'application/octet-stream', bytes: 1000, download: async () => buf('MP3'), ...o } });
+  assert.match(await mod.media(doc()), /^\[Voice message, automatic transcript/);
+  assert.match(await mod.media(doc({ name: 'x.bin', mimetype: 'audio/mpeg' })), /hello there/);
+  assert.equal(heard.length, 2);
+  assert.doesNotMatch(await mod.media(doc({ bytes: 30 << 20 })), /Voice message/);
+  assert.equal(heard.length, 2);
+});

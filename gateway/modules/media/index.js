@@ -51,6 +51,8 @@ const EXT = {
 const kb = (n) => Math.ceil(n / 1024);
 
 // deps (tests): exec, fetchFn, transcriber (replaces the chain from config), log.
+const isAudioFile = (f) => (/^audio\//.test(f.mimetype || '') || /\.(mp3|m4a|ogg|oga|opus|wav|aac|flac)$/i.test(f.name || '')) && !(f.bytes > 25 << 20); // a big one is only saved
+
 export default function media(config, { exec = run, fetchFn, transcriber, log = console.log } = {}) {
   const t = strings(config.language);
   const s = say(config.language);
@@ -167,7 +169,8 @@ export default function media(config, { exec = run, fetchFn, transcriber, log = 
   }
 
   return {
-    media: (msg) => (msg.audio ? voice(msg.audio) : msg.file ? file(msg.file, (msg.text || '').trim()) : null),
+    // An audio file sent as a document (an mp3 recording) is heard like a voice note.
+    media: (msg) => (msg.audio ? voice(msg.audio) : msg.file && isAudioFile(msg.file) ? voice(msg.file) : msg.file ? file(msg.file, (msg.text || '').trim()) : null),
     tidy,
     start(r) {
       router = r;
