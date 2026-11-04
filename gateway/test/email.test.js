@@ -170,6 +170,25 @@ describe('send needs a one-time ticket', () => {
     assert.equal(sent.length, 1);
   });
 
+  test('attachments: only own files, shown in the prompt, and a file changed after the yes is not sent', async () => {
+    const { mod, sent, agentCwd } = setup();
+    fs.mkdirSync(path.join(agentCwd, 'outbox'), { recursive: true });
+    fs.writeFileSync(path.join(agentCwd, 'outbox', 'a.pdf'), 'v1');
+    const input = { ...MAILIN, files: ['outbox/a.pdf'] };
+    assert.match(mod.describers[0]('mcp__mail__send', input), /📎 a\.pdf \(1 KB\)/);
+    approve(mod, input);
+    fs.writeFileSync(path.join(agentCwd, 'outbox', 'a.pdf'), 'v2: changed after the yes');
+    assert.equal((await mod.api({ action: 'send', ...input })).ok, false);
+    approve(mod, input);
+    assert.equal((await mod.api({ action: 'send', ...input })).ok, true);
+    assert.deepEqual(sent[0].attachments.map((a) => [a.filename, String(a.content)]), [['a.pdf', 'v2: changed after the yes']]);
+    // Not from the own folder: refused, and the prompt says why.
+    for (const f of ['/etc/passwd', '../x', 'data/.env', '.secret']) {
+      assert.match(mod.describers[0]('mcp__mail__send', { ...MAILIN, files: [f] }), /📎 ⚠️ .*own folder/, f);
+      assert.equal((await mod.api({ action: 'send', ...MAILIN, files: [f] })).ok, false, f);
+    }
+  });
+
   test('a changed body, recipient, cc or subject fails, and the ticket stays usable for the exact mail', async () => {
     const { mod, sent } = setup();
     approve(mod, MAILIN);

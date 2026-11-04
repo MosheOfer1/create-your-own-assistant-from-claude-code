@@ -8,7 +8,8 @@ const call = (action) => async (a) => {
   return r.text;
 };
 const obj = (properties, required = []) => ({ type: 'object', properties, required });
-const mail = { to: { type: 'string' }, cc: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string', description: 'Plain text' } };
+const mail = { to: { type: 'string' }, cc: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string', description: 'Plain text' },
+  files: { type: 'array', items: { type: 'string' }, description: 'Paths of files in your own folder to attach (e.g. inbox/… or outbox/…)' } };
 
 serve('mail', {
   search: { description: 'Search the mailbox. Gmail: Gmail search syntax (from:x newer_than:7d is:unread). Newest first.', schema: obj({ query: { type: 'string' }, limit: { type: 'number' } }), run: call('search') },

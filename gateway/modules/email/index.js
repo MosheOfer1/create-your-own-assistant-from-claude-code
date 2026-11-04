@@ -6,6 +6,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
+import { ownFile } from '../../src/policy.js';
 import { State } from '../../src/state.js';
 import { safeName } from '../media/index.js';
 
@@ -24,7 +25,9 @@ const KNOWN = {
   'hotmail.com': { imapHost: 'outlook.office365.com', smtpHost: 'smtp.office365.com', smtpPort: 587 },
 };
 const stable = (o) => JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k] ?? null]));
-export const ticketKey = (i = {}) => crypto.createHash('sha256').update(stable({ to: i.to, cc: i.cc, subject: i.subject, body: i.body, reply_to_uid: i.reply_to_uid })).digest('hex');
+// sums: [[name, sha256]] of the attachments, so a file changed after the owner's yes is not sent.
+export const ticketKey = (i = {}, sums = []) => crypto.createHash('sha256').update(stable({ to: i.to, cc: i.cc, subject: i.subject, body: i.body, reply_to_uid: i.reply_to_uid, files: sums.length ? sums : undefined })).digest('hex');
+const MAX_ATTACH = 20 << 20; // Gmail takes 25 MB with the encoding
 const addr = (a) => a?.value?.map((v) => (v.name ? `${v.name} <${v.address}>` : v.address)).join(', ') || '';
 
 export default function email(config, { makeImap, makeSmtp, now = Date.now, log = console.log } = {}) {
@@ -36,6 +39,21 @@ export default function email(config, { makeImap, makeSmtp, now = Date.now, log 
   const store = new State(path.join(config.dataDir, 'email.json'));
   const tickets = new Map(); // ticketKey → expiry
   let router = null;
+
+  // Files to attach: only from the assistant's own folder (inbox, outbox, its notes), never a
+  // dot path, data/ or a symlink out (ownFile), at most MAX_ATTACH together.
+  function attachments(files = []) {
+    let total = 0;
+    return [].concat(files || []).map((f) => {
+      const abs = path.resolve(config.agentCwd, String(f));
+      if (!ownFile(abs, config.agentCwd, config.root) || !fs.statSync(abs, { throwIfNoEntry: false })?.isFile()) throw new Error(`${f}: only a file in your own folder can be attached`);
+      const content = fs.readFileSync(abs);
+      total += content.length;
+      if (total > MAX_ATTACH) throw new Error(`attachments over ${MAX_ATTACH >> 20} MB`);
+      return { filename: path.basename(abs), content, sha256: crypto.createHash('sha256').update(content).digest('hex') };
+    });
+  }
+  const sums = (files) => attachments(files).map((a) => [a.filename, a.sha256]);
 
   async function withBox(fn, box = 'INBOX') {
     const c = imap();
@@ -80,8 +98,8 @@ export default function email(config, { makeImap, makeSmtp, now = Date.now, log 
         return `saved ${p}`;
       });
     },
-    async draft({ to, cc, subject = '', body = '' }) {
-      const raw = await new MailComposer({ from: config.user, to, cc, subject, text: body }).compile().build();
+    async draft({ to, cc, subject = '', body = '', files }) {
+      const raw = await new MailComposer({ from: config.user, to, cc, subject, text: body, attachments: attachments(files) }).compile().build();
       const c = imap();
       await c.connect();
       try {
@@ -91,11 +109,13 @@ export default function email(config, { makeImap, makeSmtp, now = Date.now, log 
       } finally { await c.logout().catch(() => {}); }
     },
     async send(input) {
-      const k = ticketKey(input);
+      const files = attachments(input.files);
+      const k = ticketKey(input, files.map((a) => [a.filename, a.sha256]));
       const until = tickets.get(k);
       tickets.delete(k);
       if (!until || until < now()) throw new Error('this exact mail was not approved by the owner');
       const mail = { from: config.user, to: input.to, cc: input.cc, subject: input.subject, text: input.body };
+      if (files.length) mail.attachments = files.map(({ filename, content }) => ({ filename, content }));
       // The recipient is always what the owner saw in the approval; a reply only adds the thread.
       if (!mail.to) throw new Error('no recipient: give `to` (for a reply, the sender from mcp__mail__read)');
       if (input.reply_to_uid) {
@@ -107,6 +127,12 @@ export default function email(config, { makeImap, makeSmtp, now = Date.now, log 
       return `sent (${r.messageId || 'ok'})`;
     },
   };
+
+  // The attachments in the owner's prompt: name and size, or why it cannot be sent.
+  function files(list) {
+    if (!list || ![].concat(list).length) return '';
+    try { return `\n📎 ${attachments(list).map((a) => `${a.filename} (${Math.ceil(a.content.length / 1024)} KB)`).join(', ')}`; } catch (e) { return `\n📎 ⚠️ ${e.message}`; }
+  }
 
   async function api(a) {
     const fn = Object.hasOwn(actions, a.action) && actions[a.action];
@@ -138,11 +164,14 @@ export default function email(config, { makeImap, makeSmtp, now = Date.now, log 
     allowed: ['search', 'read', 'save_attachment', 'draft'].map((t) => `mcp__mail__${t}`),
     untrusted: [/^mcp__mail__(search|read|save_attachment)$/],
     routes: { '/mail': api },
-    prompt: `## Email\nThe owner's mailbox is ${config.user}. Use mcp__mail__search / read. Write drafts freely; mcp__mail__send asks the owner first. For a reply pass reply_to_uid as well as \`to\`.`,
+    prompt: `## Email\nThe owner's mailbox is ${config.user}. Use mcp__mail__search / read. Write drafts freely; mcp__mail__send asks the owner first. To attach files from your folder, pass their paths in \`files\`. For a reply pass reply_to_uid as well as \`to\`.`,
     describers: [(tool, i) => (tool === 'mcp__mail__send'
-      ? `📧 ${i.reply_to_uid ? 'Reply by email' : 'Send an email'} to ${i.to || '(nobody: will fail)'}${i.cc ? `\nCc: ${i.cc}` : ''}${i.subject ? `\nSubject: ${i.subject}` : ''}\n\n${String(i.body || '')}`
+      ? `📧 ${i.reply_to_uid ? 'Reply by email' : 'Send an email'} to ${i.to || '(nobody: will fail)'}${i.cc ? `\nCc: ${i.cc}` : ''}${i.subject ? `\nSubject: ${i.subject}` : ''}${files(i.files)}\n\n${String(i.body || '')}`
       : null)],
-    approved({ tool_name, input }) { if (tool_name === 'mcp__mail__send') tickets.set(ticketKey(input), now() + 5 * 60_000); },
+    approved({ tool_name, input }) {
+      if (tool_name !== 'mcp__mail__send') return;
+      try { tickets.set(ticketKey(input, sums(input.files)), now() + 5 * 60_000); } catch (e) { log(`email: attachment: ${e.message}`); } // send refuses it then
+    },
     api,
     check,
     start(r) {

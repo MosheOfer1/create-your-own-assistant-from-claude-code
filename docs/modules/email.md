@@ -11,6 +11,9 @@ It sends mail over SMTP, but only after you approve.
 - `save_attachment`: saves an attachment to `<agentCwd>/inbox` so the agent can read it.
 - `draft`: saves a draft in your Drafts folder. Nothing is sent.
 - `send`: sends one mail. For a reply, give `reply_to_uid` to keep the thread.
+- `files` (draft and send): files from the assistant's own folder to attach (`inbox/…`, `outbox/…`),
+  up to 20 MB together. Never a dot path, `data/` or a file outside its folder. Your approval shows
+  each file's name and size, and it holds for exactly those files: a file changed after your yes is not sent.
 - Triage: every `watchMin` minutes the gateway looks for new unread mail. Only sender and subject
   go to a small model with no tools. You hear only about mail that needs you (a person waiting,
   a bill, a deadline, a security alert). The line starts with 📧.
