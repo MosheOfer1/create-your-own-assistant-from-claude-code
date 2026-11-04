@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 // The gateway's code folder. The agent may never write here.
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// Everything of one assistant (config, data, its folder) lives here; setup.js uses the same.
+export const BASE = process.env.ASSISTANT_HOME || path.join(os.homedir(), '.assistant');
 
 // Settings with their defaults. config.json (written by the setup skill) overrides them;
 // secrets come from the environment (.env in the data folder, 0600), never from config.json.
@@ -12,8 +14,8 @@ export const DEFAULTS = {
   language: 'en', // the owner's language: the gateway's own lines and the assistant's replies
   ownerName: 'the owner',
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-  dataDir: path.join(os.homedir(), '.assistant', 'data'), // state, auth, secrets: never in git
-  agentCwd: path.join(os.homedir(), '.assistant', 'home'), // the agent's own folder
+  dataDir: path.join(BASE, 'data'), // state, auth, secrets: never in git
+  agentCwd: path.join(BASE, 'home'), // the agent's own folder
   claudeBin: 'claude',
   model: 'sonnet',
   // Claude Code's built-in tools the agent gets (module MCP tools come on top). Fewer tools =
@@ -32,7 +34,7 @@ export const DEFAULTS = {
   modules: {},
 };
 
-export function loadConfig(file = process.env.ASSISTANT_CONFIG || path.join(DEFAULTS.dataDir, '..', 'config.json')) {
+export function loadConfig(file = process.env.ASSISTANT_CONFIG || path.join(BASE, 'config.json')) {
   const own = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   const config = { ...DEFAULTS, ...own };
   for (const k of ['dataDir', 'agentCwd']) config[k] = path.resolve(config[k].replace(/^~(?=$|\/)/, os.homedir()));

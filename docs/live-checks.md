@@ -13,3 +13,6 @@ Each line: what to check, and what it needs.
 | 3 | Email: search, read, draft in a real Gmail; send asks, then goes; hourly triage alerts once | A test Gmail with an app password |
 | 3 | Voice note → whisper.cpp transcript → turn | whisper.cpp + a model on the host (setup installs them) |
 | 3 | Brain in an existing Obsidian vault with git: commits after changes, push when asked | A test vault repo |
+| 5 | chrome-step login in a visible window on a desktop (Google), Done → the gateway's browser is logged in | A test Google account |
+| 5 | chrome-step push to an existing machine over ssh | The test machine (stage 10) |
+| 6 | setup.js whatsapp shows a pairing code and links | The second SIM/eSIM |

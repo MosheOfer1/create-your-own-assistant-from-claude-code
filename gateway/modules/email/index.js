@@ -109,7 +109,7 @@ export default function email(config, { makeImap, makeSmtp, now = Date.now, log 
   };
 
   async function api(a) {
-    const fn = actions[a.action];
+    const fn = Object.hasOwn(actions, a.action) && actions[a.action];
     if (!fn) return { ok: false, error: `unknown action ${a.action}` };
     try { return { ok: true, text: await fn(a) }; } catch (e) { return { ok: false, error: e.message }; }
   }
