@@ -13,6 +13,7 @@ const run = promisify(execFile);
 //   whisperBin ('whisper-cli'), whisperModel (<dataDir>/models/ggml-base.bin), ffmpegBin ('ffmpeg')
 //   httpUrl (an OpenAI-compatible /v1/audio/transcriptions URL), httpModel ('whisper-1');
 //   its key is TRANSCRIBE_API_KEY in the environment.
+//   voiceLanguage (default: the owner's language; 'auto' = whisper detects it)
 //   maxMinutes (10), maxFileMB (50), keepDays (7)
 export function makeTranscriber(o, { exec = run, fetchFn = fetch } = {}) {
   if (o.transcriber === 'off') return null;
@@ -32,7 +33,10 @@ export function makeTranscriber(o, { exec = run, fetchFn = fetch } = {}) {
     try {
       fs.writeFileSync(path.join(dir, 'in'), buf);
       await exec(o.ffmpegBin || 'ffmpeg', ['-loglevel', 'error', '-i', path.join(dir, 'in'), '-ar', '16000', '-ac', '1', path.join(dir, 'a.wav')]);
-      const lang = o.language ? String(o.language).slice(0, 2) : 'auto';
+      // Default: the owner's language (whisper's own detection often misses on short notes);
+      // voiceLanguage: 'auto' lets whisper detect it.
+      const v = o.voiceLanguage || o.language;
+      const lang = !v || v === 'auto' ? 'auto' : String(v).slice(0, 2);
       const { stdout } = await exec(o.whisperBin || 'whisper-cli', ['-m', o.whisperModel || path.join(o.dataDir, 'models', 'ggml-base.bin'), '-f', path.join(dir, 'a.wav'), '-l', lang, '-nt', '-np'], { maxBuffer: 16 << 20 });
       return stdout.replace(/\s+/g, ' ').trim();
     } finally {

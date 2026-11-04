@@ -47,15 +47,32 @@ function setPath(obj, key, value) {
   return obj;
 }
 
-// .env lines KEY=value; the value is quoted so any character is safe.
-export function setEnv(file, name, value) {
-  const lines = (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '').split('\n').filter((l) => l && !l.startsWith(`${name}=`));
-  lines.push(`${name}=${JSON.stringify(String(value))}`);
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(file, `${lines.join('\n')}\n`, { mode: 0o600 });
+// .env lines KEY=value. Node's loader takes quoted values literally (no escapes), so the value is
+// wrapped in a quote character it does not contain. A value with all three, or a newline, is refused.
+export function envLine(name, value) {
+  const v = String(value);
+  if (/[\r\n]/.test(v)) throw new Error('a secret cannot contain a line break');
+  const q = ["'", '"', '`'].find((c) => !v.includes(c));
+  if (!q) throw new Error('a secret cannot contain all of \' " and `');
+  return `${name}=${q}${v}${q}`;
 }
 
-const git = (...steps) => { for (const s of steps) execFileSync('git', ['-C', REPO, ...s], { stdio: 'pipe' }); };
+export function setEnv(file, name, value) {
+  const lines = (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '').split('\n').filter((l) => l && !l.startsWith(`${name}=`));
+  lines.push(envLine(name, value));
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, `${lines.join('\n')}\n`, { mode: 0o600 });
+  fs.chmodSync(file, 0o600); // also when the file already existed with a looser mode
+}
+
+// git steps in the private repo; a commit with nothing new is not an error (safe to run again).
+const git = (...steps) => {
+  for (const s of steps) {
+    try { execFileSync('git', ['-C', REPO, ...s], { stdio: 'pipe' }); } catch (e) {
+      if (!(s[0] === 'commit' && /nothing to commit|nothing added/.test(String(e.stdout) + String(e.stderr)))) throw e;
+    }
+  }
+};
 const version = (cmd, args = ['--version']) => { try { return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000 }).split('\n')[0].trim(); } catch { return null; } };
 
 export async function main([cmd, ...rest]) {
@@ -115,7 +132,7 @@ export async function main([cmd, ...rest]) {
   if (cmd === 'has') return fs.existsSync(ENV) && fs.readFileSync(ENV, 'utf8').split('\n').some((l) => l.startsWith(`${rest[0]}=`)) ? 'yes' : 'no';
   if (cmd === 'secret') {
     const name = rest[0];
-    if (!SECRETS[name]) throw new Error(`unknown secret ${name}; one of ${Object.keys(SECRETS).join(', ')}`);
+    if (!Object.hasOwn(SECRETS, name)) throw new Error(`unknown secret ${name}; one of ${Object.keys(SECRETS).join(', ')}`);
     const opt = (k) => (rest.includes(`--${k}`) ? rest[rest.indexOf(`--${k}`) + 1] : undefined);
     const tmp = path.join(BASE, 'data', `.${name}.tmp`);
     const { windowStep } = await import(pathToFileURL(path.join(HERE, 'chrome-step.js')).href);

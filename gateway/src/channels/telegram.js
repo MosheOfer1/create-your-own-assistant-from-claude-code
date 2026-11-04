@@ -87,6 +87,20 @@ export class TelegramChannel {
     return String(id);
   }
 
+  // Images as photos, anything else as a document (multipart; the token stays in the URL path only).
+  async sendFile(buf, { mimetype = 'application/octet-stream', fileName = 'file', caption = '' } = {}) {
+    if (!this.owner) throw new Error('telegram: not connected yet');
+    const photo = /^image\/(jpeg|png|webp)$/.test(mimetype);
+    const form = new FormData();
+    form.append('chat_id', String(this.owner));
+    if (caption) form.append('caption', caption.slice(0, 1000));
+    form.append(photo ? 'photo' : 'document', new Blob([buf], { type: mimetype }), fileName);
+    const r = await this.fetchFn(`https://api.telegram.org/bot${this.token}/${photo ? 'sendPhoto' : 'sendDocument'}`, { method: 'POST', body: form, signal: AbortSignal.timeout(60_000) });
+    const j = await r.json().catch(() => ({}));
+    if (!j.ok) throw new Error(`telegram send file: ${j.description || `HTTP ${r.status}`}`);
+    return String(j.result.message_id);
+  }
+
   async react(id, emoji) {
     await this.call('setMessageReaction', { chat_id: this.owner, message_id: Number(id), reaction: emoji ? [{ type: 'emoji', emoji }] : [] });
   }

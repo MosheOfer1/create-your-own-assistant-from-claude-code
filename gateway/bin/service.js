@@ -35,10 +35,10 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=${node} --disable-warning=ExperimentalWarning ${path.join(app, 'gateway', 'src', 'index.js')}
+ExecStart="${node}" --disable-warning=ExperimentalWarning "${path.join(app, 'gateway', 'src', 'index.js')}"
 WorkingDirectory=${path.join(app, 'gateway')}
-Environment=ASSISTANT_HOME=${base}
-Environment=PATH=${pathDirs.join(':')}
+Environment="ASSISTANT_HOME=${base}"
+Environment="PATH=${pathDirs.join(':')}"
 Restart=always
 RestartSec=5
 MemoryMax=${memory}
@@ -89,7 +89,7 @@ function install(memory = '2G') {
   }
   fs.mkdirSync(path.dirname(UNIT), { recursive: true });
   fs.writeFileSync(UNIT, unitText(opts));
-  fs.writeFileSync(`${TIMER}.service`, `[Unit]\nDescription=Update the personal assistant\n\n[Service]\nType=oneshot\nEnvironment=ASSISTANT_HOME=${BASE}\nEnvironment=PATH=${opts.pathDirs.join(':')}\nExecStart=${process.execPath} ${path.join(APP, 'gateway', 'bin', 'service.js')} update\n`);
+  fs.writeFileSync(`${TIMER}.service`, `[Unit]\nDescription=Update the personal assistant\n\n[Service]\nType=oneshot\nEnvironment="ASSISTANT_HOME=${BASE}"\nEnvironment="PATH=${opts.pathDirs.join(':')}"\nExecStart="${process.execPath}" "${path.join(APP, 'gateway', 'bin', 'service.js')}" update\n`);
   fs.writeFileSync(`${TIMER}.timer`, '[Unit]\nDescription=Update the personal assistant (every 5 minutes)\n\n[Timer]\nOnBootSec=2min\nOnUnitActiveSec=5min\nRandomizedDelaySec=30s\n\n[Install]\nWantedBy=timers.target\n');
   run('systemctl', ['--user', 'daemon-reload']);
   run('systemctl', ['--user', 'enable', '--now', `${NAME}.service`, `${NAME}-update.timer`]);
@@ -118,7 +118,7 @@ const restart = () => (mac ? run('launchctl', ['kickstart', '-k', `gui/${os.user
 // brain's own commits are rebased on top) and move the code to the version config.json pins.
 // Every host runs this from its timer: no inbound ssh, no server key in GitHub, works behind a
 // home router. A push to the private repo is live within ~5 minutes.
-export function update({ base = BASE, app = APP, sh = run, log = console.log } = {}) {
+export function update({ base = BASE, app = APP, sh = run, log = console.log, restartFn = restart } = {}) {
   const repo = path.join(base, 'repo');
   const out = [];
   let restartNeeded = false;
@@ -130,6 +130,8 @@ export function update({ base = BASE, app = APP, sh = run, log = console.log } =
   }
   const cfg = [path.join(repo, 'config.json'), path.join(base, 'config.json')].find((f) => fs.existsSync(f));
   const want = cfg && JSON.parse(fs.readFileSync(cfg, 'utf8')).version;
+  // A tag name only: a value like "--upload-pack=…" must never reach git as an option.
+  if (want && !/^\w[\w./-]*$/.test(want)) throw new Error(`config.json version is not a tag: ${want}`);
   if (want) {
     const have = sh('git', ['-C', app, 'describe', '--tags', '--always']);
     if (have !== want) {
@@ -140,7 +142,7 @@ export function update({ base = BASE, app = APP, sh = run, log = console.log } =
       restartNeeded = true;
     }
   }
-  if (restartNeeded) out.push(restart());
+  if (restartNeeded) out.push(restartFn());
   log(out.join('; ') || 'up to date');
   return out;
 }

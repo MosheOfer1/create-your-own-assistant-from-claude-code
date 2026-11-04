@@ -17,10 +17,14 @@ const make = {
   telegram: async () => new (await import('./channels/telegram.js')).TelegramChannel({ token: process.env.TELEGRAM_BOT_TOKEN, state }),
 };
 const channels = {};
+// A channel that cannot start (a missing token) is left out with a log line; the others run.
 for (const [name, opts] of Object.entries(config.channels || { cli: {} })) {
-  if (!make[name]) throw new Error(`unknown channel ${name}`);
-  channels[name] = await make[name](opts || {});
+  try {
+    if (!make[name]) throw new Error('unknown channel');
+    channels[name] = await make[name](opts || {});
+  } catch (e) { console.log(`gateway: channel ${name} left out: ${e.message}`); }
 }
+if (!Object.keys(channels).length) throw new Error('no channel could start; check config.json channels');
 const channel = new Channels({ channels, language: config.language });
 const gw = await createGateway({ config, channel });
 console.log(`gateway: up, channels ${Object.keys(channels).join(', ')}`);

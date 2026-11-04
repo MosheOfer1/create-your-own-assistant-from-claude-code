@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { isReadOnly, realChange } from './commands.js';
 
@@ -76,6 +77,11 @@ export function secretReadDeny({ root, home, dataDir }) {
   return [rule(dataDir), rule(path.join(root, '.env'), false), rule(path.join(home, '.ssh')), rule(path.join(home, '.claude')),
     rule(path.join(home, '.claude.json'), false), rule(path.join(home, '.config')), rule(path.join(home, '.gnupg'))];
 }
+
+// WebFetch never reaches this machine or a cloud metadata service by name. Its rules can only
+// name hosts (no IP ranges); the browse module checks every address itself.
+export const LOCAL_FETCH_DENY = ['localhost', '127.0.0.1', '0.0.0.0', '[::1]', '169.254.169.254', 'metadata.google.internal', os.hostname()]
+  .map((d) => `WebFetch(domain:${d})`);
 
 // lockHost (a shared machine): the agent's file tools stay out of the system folders, other
 // homes and every folder in this home except its own folder and the gateway's code.

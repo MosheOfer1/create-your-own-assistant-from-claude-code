@@ -3,8 +3,9 @@ import path from 'node:path';
 import { checkUrl, secretField } from './guard.js';
 
 // A Chromium with a persistent profile (one per identity, so logins stay and identities never
-// mix). It runs inside the calling process over a pipe: no debugging port another process
-// could use. headless for work; headed for a login by the owner (see login.js).
+// mix). In the gateway it runs inside the process over a pipe: no debugging port another
+// process (the agent's shell) could use. Only the owner's own CLI (bin/browse.js) attaches to a
+// Chrome on a 127.0.0.1 port (cdpUrl). Logins by hand: bin/chrome-step.js.
 const CLEAN = `(all) => {
   if (all) return document.body.innerText;
   const noise = [...document.querySelectorAll('nav,footer,header,[role=navigation],[role=banner],[role=contentinfo],[id*=cookie i],[class*=cookie i]')]

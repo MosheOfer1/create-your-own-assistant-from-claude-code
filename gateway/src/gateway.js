@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Agent, writeMcpConfig } from './agent.js';
 import { Approvals } from './approvals.js';
 import { newToken, startControl } from './control.js';
-import { hostReadDeny, Policy, secretReadDeny } from './policy.js';
+import { hostReadDeny, LOCAL_FETCH_DENY, Policy, secretReadDeny } from './policy.js';
 import { Router } from './router.js';
 import { State } from './state.js';
 
@@ -49,7 +49,7 @@ export async function createGateway({ config, channel, modules, agentFactory, lo
   const policy = new Policy({ agentCwd: config.agentCwd, root: config.root, freeShell: config.freeShell, modules });
   const mcpConfig = writeMcpConfig({ dataDir: config.dataDir, ctlUrl: control.url, ctlToken: token, servers: Object.assign({}, ...modules.map((m) => m.mcp || {})) });
   const home = os.homedir();
-  const deny = [...secretReadDeny({ root: config.root, home, dataDir: config.dataDir }),
+  const deny = [...secretReadDeny({ root: config.root, home, dataDir: config.dataDir }), ...LOCAL_FETCH_DENY,
     ...(config.lockHost ? hostReadDeny({ root: config.root, home, agentCwd: config.agentCwd }) : [])];
   const agentOpts = { config, mcpConfig, allowedTools: policy.allowed, disallowedTools: deny, promptExtra: modules.map((m) => m.prompt).filter(Boolean) };
   const agent = agentFactory ? agentFactory(agentOpts) : new Agent(agentOpts);

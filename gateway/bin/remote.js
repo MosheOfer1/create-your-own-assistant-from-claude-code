@@ -37,7 +37,8 @@ echo "userns_restricted: $(sysctl -n kernel.apparmor_restrict_unprivileged_usern
 export function judge(text) {
   const v = Object.fromEntries(text.trim().split('\n').map((l) => [l.split(':')[0], l.slice(l.indexOf(':') + 1).trim()]));
   const problems = [];
-  if (Number(v.ram_mb) < 1900) problems.push(`only ${v.ram_mb} MB RAM; the assistant needs 2 GB`);
+  if (!(Number(v.ram_mb) > 0)) problems.push('could not read the RAM size');
+  else if (Number(v.ram_mb) < 1900) problems.push(`only ${v.ram_mb} MB RAM; the assistant needs 2 GB`);
   if (!/^Linux/.test(v.os || '')) problems.push(`not Linux (${v.os}); use this computer instead`);
   if (v.git === 'missing') problems.push('git is missing (sudo apt install git)');
   if (v.systemd_user === 'no') problems.push('no systemd user session (WSL: enable systemd in /etc/wsl.conf)');
@@ -77,15 +78,25 @@ if [ -d "$A/repo/.git" ]; then git -C "$A/repo" pull -q --rebase; else git clone
 git -C "$A/repo" config core.sshCommand "$GIT_SSH_COMMAND"
 echo cloned`;
 
+// Every value that goes into a command or a script is checked first (no shell characters, no
+// leading "-" that ssh or git would read as an option).
+const SAFE = { host: /^\w[\w.-]*@\w[\w.-]*$/, key: /^[\w./~-]+$/, version: /^\w[\w./-]*$/, repo: /^\w[\w.-]*\/\w[\w.-]*$/ };
+export function safe(kind, value) {
+  if (value !== undefined && !SAFE[kind].test(value)) throw new Error(`not a valid ${kind}: ${value}`);
+  return value;
+}
+
 export function main([cmd, host, ...rest]) {
   if (!cmd || cmd === '-h' || cmd === '--help') return USAGE;
-  if (!/^[\w.-]+@[\w.-]+$/.test(host || '')) throw new Error(`USER@HOST is required\n${USAGE}`);
-  const key = opt(rest, 'key');
+  if (!SAFE.host.test(host || '')) throw new Error(`USER@HOST is required\n${USAGE}`);
+  const key = safe('key', opt(rest, 'key'));
+  safe('version', opt(rest, 'version'));
+  safe('repo', opt(rest, 'repo'));
   if (cmd === 'check') {
     const r = judge(remote(host, key, CHECK));
     return [...Object.entries(r.facts).map(([k, v]) => `${k}: ${v}`), ...r.problems.map((p) => `PROBLEM: ${p}`), ...r.notes.map((n) => `note: ${n}`), r.ok ? 'ok' : 'not ok'].join('\n');
   }
-  if (cmd === 'login') return `ssh -t ${host} '~/.local/bin/claude /login || claude /login'`;
+  if (cmd === 'login') return `ssh -t ${key ? `-i ${key} ` : ''}${host} '~/.local/bin/claude /login || claude /login'`;
   if (cmd === 'logs') return remote(host, key, `journalctl --user -u assistant.service -n ${Number(rest[0]) || 50} --no-pager`);
   if (cmd === 'install') {
     const repo = opt(rest, 'repo');

@@ -6,7 +6,8 @@ import { Brain } from './store.js';
 
 // The second brain module. Options (config.modules.brain):
 //   dir: the Markdown folder (default <agentCwd>/brain; point it at an existing Obsidian vault)
-//   commit: true → each change is committed when the folder is a git repo; push: true → also pushed
+//   when the folder (or its parent) is a git repo, each change is committed (commit: false turns it off);
+//   push: true → also pushed
 //   recallChars (1500), coreChars (1500)
 // Core = the owner's own rules and preferences, in the system prompt. Recall = other matching
 // facts and notes, added before a turn only when something matches.
