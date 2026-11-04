@@ -1,0 +1,14 @@
+{
+  "name": "assistant-gateway",
+  "version": "0.1.0",
+  "description": "The assistant service: channels, the Claude Code agent, approvals and modules.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/index.js",
+    "cli": "node bin/cli.js",
+    "test": "node --test test/*.test.js"
+  }
+}

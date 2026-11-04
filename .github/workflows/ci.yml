@@ -21,13 +21,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [20, 22]
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
       - run: node --test test/*.test.mjs
+      - name: Gateway tests
+        working-directory: gateway
+        run: npm test
       - name: Validate plugin manifests
         run: |
           node -e 'for (const f of [".claude-plugin/marketplace.json","plugin/.claude-plugin/plugin.json"]) JSON.parse(require("fs").readFileSync(f))'
