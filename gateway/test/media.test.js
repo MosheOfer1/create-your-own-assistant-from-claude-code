@@ -19,6 +19,7 @@ after(() => clearInterval(keepAlive));
 
 const t = strings('en');
 const buf = (s = 'audio') => Buffer.from(s);
+const nolog = () => {};
 
 // An exec that records its calls; whisper-cli answers with `stdout`.
 function fakeExec(stdout = ' hello   world \n') {
@@ -59,8 +60,8 @@ describe('makeTranscriber', () => {
 
   test('whisper: ffmpeg first, then whisper-cli with -l <lang>; stdout is tidied', async () => {
     const { exec, calls } = fakeExec();
-    const tr = makeTranscriber({ dataDir: '/data', language: 'he-IL' }, { exec });
-    assert.equal(await tr(buf()), 'hello world');
+    const tr = makeTranscriber({ dataDir: '/data', language: 'he-IL' }, { exec, log: nolog });
+    assert.equal(await tr.transcribe(buf()), 'hello world');
     assert.deepEqual(calls.map((c) => c.bin), ['ffmpeg', 'whisper-cli']);
     const wavArg = calls[0].args.at(-1);
     assert.deepEqual(calls[0].args.slice(0, 2), ['-loglevel', 'error']);
@@ -74,25 +75,25 @@ describe('makeTranscriber', () => {
 
   test('whisper: language defaults to auto; custom binaries and model are used', async () => {
     const { exec, calls } = fakeExec('x');
-    await makeTranscriber({ ffmpegBin: 'myff', whisperBin: 'mywh', whisperModel: '/m.bin' }, { exec })(buf());
+    await makeTranscriber({ ffmpegBin: 'myff', whisperBin: 'mywh', whisperModel: '/m.bin' }, { exec, log: nolog }).transcribe(buf());
     assert.deepEqual(calls.map((c) => c.bin), ['myff', 'mywh']);
     assert.equal(calls[1].args[calls[1].args.indexOf('-m') + 1], '/m.bin');
   });
 
   test('whisper: no language means -l auto', async () => {
     const { exec, calls } = fakeExec('x');
-    await makeTranscriber({ dataDir: '/d' }, { exec })(buf());
+    await makeTranscriber({ dataDir: '/d' }, { exec, log: nolog }).transcribe(buf());
     const w = calls[1].args;
     assert.equal(w[w.indexOf('-l') + 1], 'auto');
   });
 
   test('whisper: the temp dir is removed after success and after a failure', async () => {
     const ok = fakeExec();
-    await makeTranscriber({ dataDir: '/d' }, { exec: ok.exec })(buf());
+    await makeTranscriber({ dataDir: '/d' }, { exec: ok.exec, log: nolog }).transcribe(buf());
     assert.ok(!fs.existsSync(path.dirname(ok.calls[0].args.at(-1))));
     let dir;
     const failing = async (bin, args) => { dir = path.dirname(args.at(-1)); throw new Error('ffmpeg died'); };
-    await assert.rejects(makeTranscriber({ dataDir: '/d' }, { exec: failing })(buf()), /ffmpeg died/);
+    await assert.rejects(makeTranscriber({ dataDir: '/d' }, { exec: failing, log: nolog }).transcribe(buf()), /ffmpeg died/);
     assert.ok(!fs.existsSync(dir));
   });
 
@@ -104,8 +105,8 @@ describe('makeTranscriber', () => {
       process.env.TRANSCRIBE_API_KEY = 'sk-test';
       const seen = [];
       const fetchFn = async (url, init) => { seen.push({ url, init }); return { ok: true, status: 200, json: async () => ({ text: 'שלום' }) }; };
-      const tr = makeTranscriber({ transcriber: 'http', httpUrl: 'https://x.test/v1/audio/transcriptions', httpModel: 'm1' }, { fetchFn });
-      assert.equal(await tr(buf('abc'), 'audio/ogg'), 'שלום');
+      const tr = makeTranscriber({ transcriber: 'http', httpUrl: 'https://x.test/v1/audio/transcriptions', httpModel: 'm1' }, { fetchFn, log: nolog });
+      assert.equal(await tr.transcribe(buf('abc'), 'audio/ogg'), 'שלום');
       const { url, init } = seen[0];
       assert.equal(url, 'https://x.test/v1/audio/transcriptions');
       assert.equal(init.method, 'POST');
@@ -121,16 +122,16 @@ describe('makeTranscriber', () => {
       delete process.env.TRANSCRIBE_API_KEY;
       let init;
       const fetchFn = async (u, i) => { init = i; return { ok: true, json: async () => ({}) }; };
-      assert.equal(await makeTranscriber({ transcriber: 'http', httpUrl: 'u' }, { fetchFn })(buf(), 'audio/ogg'), '');
+      assert.equal(await makeTranscriber({ transcriber: 'http', httpUrl: 'u' }, { fetchFn, log: nolog }).transcribe(buf(), 'audio/ogg'), '');
       assert.equal(init.body.get('model'), 'whisper-1');
       assert.equal(init.headers.authorization, 'Bearer ');
     });
 
     test('error path: API message, or HTTP status when the body is not JSON', async () => {
       const bad = async () => ({ ok: false, status: 401, json: async () => ({ error: { message: 'bad key' } }) });
-      await assert.rejects(makeTranscriber({ transcriber: 'http', httpUrl: 'u' }, { fetchFn: bad })(buf(), 'a/b'), /bad key/);
+      await assert.rejects(makeTranscriber({ transcriber: 'http', httpUrl: 'u' }, { fetchFn: bad, log: nolog }).transcribe(buf(), 'a/b'), /bad key/);
       const html = async () => ({ ok: false, status: 502, json: async () => { throw new Error('not json'); } });
-      await assert.rejects(makeTranscriber({ transcriber: 'http', httpUrl: 'u' }, { fetchFn: html })(buf(), 'a/b'), /HTTP 502/);
+      await assert.rejects(makeTranscriber({ transcriber: 'http', httpUrl: 'u' }, { fetchFn: html, log: nolog }).transcribe(buf(), 'a/b'), /HTTP 502/);
     });
   });
 });
@@ -139,7 +140,7 @@ function setup(opts = {}, deps = {}) {
   const agentCwd = tmp();
   const dataDir = tmp();
   const fx = fakeExec(deps.stdout);
-  const mod = media({ agentCwd, dataDir, language: 'en', ...opts }, { exec: fx.exec, fetchFn: deps.fetchFn });
+  const mod = media({ agentCwd, dataDir, language: 'en', ...opts }, { exec: fx.exec, fetchFn: deps.fetchFn, log: deps.log || nolog });
   const router = { sent: [], async send(x) { this.sent.push(x); } };
   mod.start(router);
   mod.stop();
