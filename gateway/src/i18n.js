@@ -20,6 +20,9 @@ const STRINGS = {
     taint: '🟠 This conversation holds text someone else wrote (an email, a page or a file), so I ask.\n',
     runCommand: 'Run a command:',
     changeFile: 'Change a file:',
+    waLoggedOut: '⚠️ WhatsApp logged the assistant out. Open the assistant\'s setup and link WhatsApp again (a new pairing code). Tip: open WhatsApp on the assistant\'s phone at least every 14 days.',
+    waDown: '⚠️ The assistant has had no WhatsApp connection for 10 minutes. I keep trying. Is the machine online?',
+    waBack: '✅ WhatsApp is connected again.',
   },
   he: {
     ask: (id, what) => `🔐 בקשה #${id}\n${what}\n\nלענות: כן / לא`,
@@ -39,6 +42,9 @@ const STRINGS = {
     taint: '🟠 בשיחה יש טקסט שמישהו אחר כתב (מייל, אתר או קובץ), לכן אני שואל.\n',
     runCommand: 'להריץ פקודה:',
     changeFile: 'לשנות קובץ:',
+    waLoggedOut: '⚠️ וואטסאפ ניתק את העוזר. צריך לחבר אותו מחדש בהקמה (קוד צימוד חדש). טיפ: לפתוח את וואטסאפ בטלפון של העוזר לפחות פעם ב-14 יום.',
+    waDown: '⚠️ אין לעוזר חיבור לוואטסאפ כבר 10 דקות. אני ממשיך לנסות. המחשב מחובר לרשת?',
+    waBack: '✅ וואטסאפ מחובר שוב.',
   },
 };
 

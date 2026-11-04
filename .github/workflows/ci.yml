@@ -30,7 +30,9 @@ jobs:
       - run: node --test test/*.test.mjs
       - name: Gateway tests
         working-directory: gateway
-        run: npm test
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
       - name: Validate plugin manifests
         run: |
           node -e 'for (const f of [".claude-plugin/marketplace.json","plugin/.claude-plugin/plugin.json"]) JSON.parse(require("fs").readFileSync(f))'
