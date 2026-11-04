@@ -37,10 +37,9 @@ export function locationLine(l) {
 }
 
 // The neighbourhood and city of a point, from OpenStreetMap (Nominatim, free, no key). '' on failure.
-// The point is rounded to about 100 m before it leaves; the names are text anyone can edit in
-// OpenStreetMap, so only letters, digits, spaces and a few marks, and at most 80 characters.
+// The names are text anyone can edit in OpenStreetMap: only letters, digits, spaces and a few
+// marks, and at most 80 characters.
 export async function placeOf(lat, lon, { fetch = globalThis.fetch, language = 'he' } = {}) {
-  [lat, lon] = [Number(lat).toFixed(3), Number(lon).toFixed(3)];
   try {
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=16&accept-language=${language}&lat=${lat}&lon=${lon}`,
       { headers: { 'user-agent': 'personal-assistant-gateway/1' }, signal: AbortSignal.timeout(5000) });
