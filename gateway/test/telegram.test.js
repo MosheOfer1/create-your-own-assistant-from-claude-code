@@ -183,7 +183,7 @@ describe('poll loop', () => {
     assert.deepEqual(s.got.map((m) => m.text), ['polled']);
     assert.equal(tg.offset, 11);
     assert.equal(tg.running, false);
-    assert.deepEqual(s.byMethod('getUpdates')[0].body, { timeout: 0, allowed_updates: ['message'] });
+    assert.deepEqual(s.byMethod('getUpdates')[0].body, { timeout: 0, allowed_updates: ['message', 'edited_message', 'callback_query'] });
   });
 
   test('the token never appears in a log line, also on an error path', async () => {

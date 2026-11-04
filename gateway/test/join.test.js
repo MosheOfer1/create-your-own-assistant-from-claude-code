@@ -177,3 +177,49 @@ describe('link status', () => {
     assert.deepEqual([wa.sent, tg.sent], [[], ['hi']]);
   });
 });
+
+describe('pass-through', () => {
+  test('send options reach the channel (skip does not); the other channels observe the text', async () => {
+    const { ch, wa, tg } = setup();
+    const opts = [];
+    wa.send = async (text, o) => { opts.push(o); return 'w1'; };
+    tg.observed = [];
+    tg.observe = (text) => tg.observed.push(text);
+    wa.observe = () => { throw new Error('the sender does not observe its own text'); };
+    await ch.send('🔐 Request #1', { approvalId: 1, skip: 'nosuch' });
+    await tick();
+    assert.deepEqual(opts, [{ approvalId: 1 }]);
+    assert.deepEqual(tg.observed, ['🔐 Request #1']);
+  });
+
+  test('a throwing observe does not break the send', async () => {
+    const { ch, tg } = setup();
+    tg.observe = () => { throw new Error('boom'); };
+    assert.equal(await ch.send('hi'), 'whatsapp:whatsapp-out1');
+    await tick();
+  });
+
+  test('lastLocation is the newest of all channels, or null', () => {
+    const { ch, wa, tg } = setup();
+    assert.equal(ch.lastLocation, null);
+    wa.lastLocation = { lat: 1, lon: 1, at: 10, live: false };
+    tg.lastLocation = { lat: 2, lon: 2, at: 20, live: true };
+    assert.equal(ch.lastLocation.lat, 2);
+  });
+
+  test('sendTo, contacts and findContact go to the channel that has them', async () => {
+    const { ch, wa } = setup();
+    assert.deepEqual([ch.contacts(), ch.findContact('x')], [[], []]);
+    await assert.rejects(ch.sendTo('+15550111', 'x'), /no channel can send to other people/);
+    const calls = [];
+    Object.assign(wa, {
+      sendTo: async (...a) => { calls.push(a); return 'id1'; },
+      contacts: () => [{ phone: '+15550111' }],
+      findContact: (q, limit) => [{ phone: '+15550111', q, limit }],
+    });
+    assert.equal(await ch.sendTo('+15550111', 'hi', { file: null }), 'id1');
+    assert.deepEqual(calls, [['+15550111', 'hi', { file: null }]]);
+    assert.deepEqual(ch.contacts(), [{ phone: '+15550111' }]);
+    assert.deepEqual(ch.findContact('dana', 3), [{ phone: '+15550111', q: 'dana', limit: 3 }]);
+  });
+});

@@ -5,6 +5,7 @@ import { strings } from '../i18n.js';
 // - A reply goes to the channel the owner last wrote in (for stickyMin), else to the first one
 //   that works; a failed send tries the next.
 // - A channel that loses its link (WhatsApp 'logged-out' or 'down') is reported on the others.
+// - lastLocation, sendTo, contacts and findContact pass through to the channel that has them.
 export class Channels {
   constructor({ channels, language = 'en', stickyMin = 30, now = Date.now, log = console.log }) {
     Object.assign(this, { now, log, stickyMs: stickyMin * 60_000 });
@@ -27,14 +28,38 @@ export class Channels {
     return [...this.list].sort((a, b) => (b.name === sticky) - (a.name === sticky));
   }
 
-  async send(text, { skip } = {}) {
+  // opts (e.g. { approvalId }) go on to the channel. Every other channel sees the text too
+  // (observe): Telegram closes its approval buttons when the decision went out on WhatsApp.
+  async send(text, { skip, ...opts } = {}) {
     let err;
     for (const { name, channel } of this.order()) {
       if (name === skip || this.down?.has(name)) continue;
-      try { return `${name}:${await channel.send(text)}`; } catch (e) { err = e; this.log(`channels: ${name} send failed: ${e.message}`); }
+      let id;
+      try { id = await channel.send(text, opts); } catch (e) { err = e; this.log(`channels: ${name} send failed: ${e.message}`); continue; }
+      for (const o of this.list) if (o.name !== name) Promise.resolve().then(() => o.channel.observe?.(text)).catch(() => {});
+      return `${name}:${id}`;
     }
     throw err || new Error('no channel could send');
   }
+
+  // The owner's last known location from any channel (the newest): { lat, lon, at, live, ... } or null.
+  get lastLocation() {
+    return this.list.map((c) => c.channel.lastLocation).filter(Boolean).sort((a, b) => b.at - a.at)[0] || null;
+  }
+
+  // Other people, through the first channel that can reach them (WhatsApp). For a module with an
+  // approval gate only: no tool reaches these by itself.
+  reach() { return this.list.find((c) => c.channel.sendTo)?.channel || null; }
+
+  async sendTo(to, text, opts) {
+    const c = this.reach();
+    if (!c) throw new Error('no channel can send to other people');
+    return c.sendTo(to, text, opts);
+  }
+
+  contacts() { return this.reach()?.contacts?.() || []; }
+
+  findContact(query, limit) { return this.reach()?.findContact?.(query, limit) || []; }
 
   async sendFile(buf, opts) {
     const c = this.order().find((x) => x.channel.sendFile && !this.down?.has(x.name));
