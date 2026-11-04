@@ -20,4 +20,4 @@ Each line: what to check, and what it needs.
 | 6 | setup.js repo create (gh) → private repo with config.json + brain/ | A test GitHub account |
 | 7 | service.js install on Linux (systemd + linger) and macOS (launchd); survives reboot | A Linux user and a Mac |
 | 7 | remote.js check / install on a clean machine over ssh (Node to ~/.local/opt, deploy key) | A clean LXD container |
-| 8 | A push to the private repo is live within ~5 min (config change restarts; version change updates code) | Same |
+| 8 | A push to the private repo is in effect from the next message (config change restarts; version change updates code) | Same |

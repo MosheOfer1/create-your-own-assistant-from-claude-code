@@ -5,9 +5,10 @@
 import path from 'node:path';
 import { CliChannel } from './channels/cli.js';
 import { Channels } from './channels/join.js';
-import { loadConfig } from './config.js';
+import { BASE, loadConfig, ROOT } from './config.js';
 import { createGateway } from './gateway.js';
 import { State } from './state.js';
+import { makeSync } from './sync.js';
 
 const config = loadConfig();
 const state = new State(path.join(config.dataDir, 'channels.json'));
@@ -28,4 +29,12 @@ if (!Object.keys(channels).length) throw new Error('no channel could start; chec
 const channel = new Channels({ channels, language: config.language });
 const gw = await createGateway({ config, channel });
 console.log(`gateway: up, channels ${Object.keys(channels).join(', ')}`);
-for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => { await gw.stop(); process.exit(0); });
+const quit = async () => { await gw.stop(); process.exit(0); }; // systemd / launchd start it again
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, quit);
+
+// The private repo: pulled before a turn (at most once a minute) and once a day, never on a timer.
+const sync = makeSync({ base: BASE, app: path.dirname(ROOT) });
+Object.assign(gw.router.hooks, { beforeTurn: () => sync(), restart: quit });
+setInterval(async () => {
+  if (await sync({ force: true }) === 'restart' && !gw.router.current) await quit();
+}, 24 * 3600_000).unref();

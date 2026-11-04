@@ -67,8 +67,9 @@ After each step: `$S mark STEP done` (or `skipped`) and `$S log "<what happened>
     Always on: `$S set modules.reminders '{}'`, `$S set modules.brain '{}'` (if not set by step 6), `$S set modules.browse '{}'`.
 13. **service** - This computer: `service.js install`. SSH host: `$S repo push`, then `remote.js install USER@HOST --repo <owner>/my-assistant --version <tag>`.
     If linger is not on, explain the one admin command it needs.
-14. **deploy** - Explain: settings and brain live in their private repo; a push there reaches the assistant within
-    ~5 minutes. To update the assistant: change `version` in config.json.
+14. **deploy** - Explain: settings and brain live in their private repo. A change made there from outside (GitHub,
+    Obsidian on a phone) is picked up when the assistant answers the next message. What they ask in the chat works
+    at once. To update the assistant: change `version` in config.json.
 15. **test** - Ask them to write "hi" to the assistant's number. Watch `service.js logs` (or `remote.js logs`).
     A reply means it works. Then suggest two first tasks ("remind me tomorrow at 9 to…", "what's new in my email?").
 

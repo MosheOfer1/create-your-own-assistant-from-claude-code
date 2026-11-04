@@ -110,7 +110,7 @@ export async function main([cmd, ...rest]) {
   }
   if (cmd === 'repo') {
     // repo create NAME: a private GitHub repo for config + brain (gh must be logged in).
-    // repo push: send local commits (each host pulls within ~5 minutes).
+    // repo push: send local commits (the assistant pulls before its next answer).
     if (rest[0] === 'push') { git(['push', '-q']); log('repo pushed'); return 'pushed'; }
     if (rest[0] !== 'create' || !/^[\w.-]+$/.test(rest[1] || '')) throw new Error('repo create NAME | repo push');
     if (fs.existsSync(path.join(REPO, '.git'))) return `already at ${REPO}`;
@@ -123,7 +123,7 @@ export async function main([cmd, ...rest]) {
     fs.mkdirSync(path.join(REPO, 'brain', 'memory'), { recursive: true });
     fs.writeFileSync(path.join(REPO, 'brain', 'README.md'), '# Second brain\n\nNotes and facts the assistant keeps. Open this folder in Obsidian if you like.\n');
     fs.writeFileSync(path.join(REPO, '.gitignore'), '.env\n*.env\ndata/\n.obsidian/workspace*.json\n');
-    fs.writeFileSync(path.join(REPO, 'README.md'), '# My assistant\n\n`config.json`: settings (no secrets). `brain/`: the second brain.\nA push here reaches the assistant within about 5 minutes.\n');
+    fs.writeFileSync(path.join(REPO, 'README.md'), '# My assistant\n\n`config.json`: settings (no secrets). `brain/`: the second brain.\nThe assistant picks up a push here when it answers the next message.\n');
     git(['add', '-A'], ['commit', '-q', '-m', 'setup: start'], ['push', '-q', '-u', 'origin', 'HEAD']);
     fs.rmSync(path.join(BASE, 'config.json'), { force: true }); // one config only: the repo's
     log(`repo ${user}/${rest[1]} created`);

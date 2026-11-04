@@ -130,6 +130,12 @@ export class Router {
   }
 
   async turn(text, ids = []) {
+    // The private repo changed (config or code version): keep the message, restart, and answer
+    // it after the restart as if nothing happened (resume, quiet).
+    if (await Promise.resolve().then(() => this.hooks.beforeTurn?.()).catch(() => null) === 'restart' && this.hooks.restart) {
+      this.state.set('inflight', { text, at: this.now(), quiet: true });
+      return this.hooks.restart();
+    }
     const ctl = new AbortController();
     this.current = ctl;
     const typing = setInterval(() => this.channel.typing?.(true)?.catch?.(() => {}), 10_000);
@@ -137,7 +143,7 @@ export class Router {
     // Kept until the turn ends: a restart in the middle finds it and carries on (resume).
     this.state.set('inflight', { text, at: this.now() });
     try {
-      const extra = (await Promise.resolve(this.hooks.context?.(text)).catch(() => '')) || '';
+      const extra = (await Promise.resolve().then(() => this.hooks.context?.(text)).catch(() => '')) || '';
       const onTool = (name, input) => { if (this.policy.untrusted(name, input)) this.markTainted(name); };
       const r = await this.agent.run({ prompt: [extra, text].filter(Boolean).join('\n\n'), sessionId: this.session(), signal: ctl.signal, onTool });
       this.state.set('lastTurnAt', this.now());
@@ -166,6 +172,8 @@ export class Router {
     const f = this.state.get('inflight');
     this.state.set('inflight', null);
     if (!f?.text || this.now() - f.at > RESUME_MS || f.text.startsWith(RESUMED)) return null;
+    // Restarted for an update before the turn began: nothing was done yet, so just answer it.
+    if (f.quiet) return this.enqueue(() => this.turn(f.text));
     return this.enqueue(async () => {
       await this.send(this.t.resumed).catch(() => {});
       return this.turn(`${RESUMED} Go on with it; before you repeat an action, check whether it was already done.]\n${f.text}`);

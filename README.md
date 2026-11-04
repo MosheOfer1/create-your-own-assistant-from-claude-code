@@ -68,7 +68,7 @@ You answer a request with "yes" or "no" in the same chat.
     v
  modules: reminders, media, brain, email, browse
 
- your private repo (settings + notes) --- pulled every 5 minutes ---> gateway
+ your private repo (settings + notes) --- pulled before each answer ---> gateway
 ```
 
 ## Layout

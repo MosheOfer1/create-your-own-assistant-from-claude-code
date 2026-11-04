@@ -25,9 +25,12 @@ Runs the gateway as a service. Linux: a systemd user unit with `MemoryMax` (defa
 `--memory` changes it) and linger. macOS: a launchd agent. Commands: `install`, `uninstall`,
 `status`, `restart`, `logs [N]`, `update`.
 
-`update` runs every 5 minutes from a timer. It pulls the private repo. A new `config.json` restarts
-the gateway. If `version` in `config.json` names another git tag, it checks out that tag, runs
-`npm ci` and restarts. So a push to the private repo is live in about 5 minutes.
+There is no timer. The gateway pulls the private repo itself (`src/sync.js`): before it answers a
+message (at most once a minute) and once a day. A new `config.json` restarts the gateway, and it then
+answers the same message. If `version` in `config.json` names another tag, it checks it out, runs
+`npm ci` and restarts. So a change pushed from outside (GitHub, Obsidian on a phone) is in effect from
+the next message. Reminders and everything asked in the chat never wait for this.
+`update` does the same pull now, by hand.
 
 ## remote.js
 
