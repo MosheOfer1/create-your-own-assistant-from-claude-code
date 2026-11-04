@@ -76,6 +76,24 @@ export default function brainModule(config, { exec = execFile, log = console.log
     return { ok: false, error: `unknown action ${a.action}` };
   }
 
+  // Chat commands, so the owner can see and fix the memory without a turn:
+  // "memory" / "זיכרון" lists the saved facts, "forget 3" / "תשכח 3" removes one.
+  const he = config.language === 'he';
+  function command(text) {
+    const t = String(text).trim();
+    if (/^(\/memory|memory|זיכרון)$/i.test(t)) {
+      const rows = brain.facts();
+      if (!rows.length) return he ? 'הזיכרון ריק.' : 'The memory is empty.';
+      return rows.slice(-40).map((f) => `#${f.id} ${f.text}${f.source === 'owner' ? '' : ' (?)'}`).join('\n')
+        + (rows.length > 40 ? `\n… ${rows.length - 40} ${he ? 'נוספות' : 'more'}` : '');
+    }
+    const m = t.match(/^(?:\/forget|forget|תשכח)\s+#?(\d+)$/i);
+    if (!m) return null;
+    const done = brain.removeFact(m[1]);
+    if (done) commit();
+    return done ? (he ? `שכחתי את #${m[1]}.` : `Forgot #${m[1]}.`) : (he ? `אין עובדה #${m[1]}.` : `No fact #${m[1]}.`);
+  }
+
   // Before a turn: matching facts and notes (not the core ones, they are in the prompt already).
   function recall(text) {
     // Only the owner's own words count for a quote: not forwarded text, not a quoted reply.
@@ -107,6 +125,7 @@ export default function brainModule(config, { exec = execFile, log = console.log
     prompt: () => [`## Memory\nYour second brain is Markdown in ${dir} (the owner may read it in Obsidian). Use mcp__brain__search before saying you do not know something about the owner. `
       + 'Save lasting facts with mcp__brain__remember: preferences, people, projects. When the owner said it themselves, pass their exact words as `quote` (a rule, "always…" / "never…", needs one). Do not save one-off details.', core()].filter(Boolean).join('\n\n'),
     context: recall,
+    command,
     brain,
     api,
     start() { brain.sync(); },

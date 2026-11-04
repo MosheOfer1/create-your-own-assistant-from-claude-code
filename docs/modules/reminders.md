@@ -8,6 +8,7 @@ Folder: `gateway/modules/reminders/`. It keeps reminders and timed tasks. Jobs a
 - `remind`: at the set time, the text is sent to you. Nothing else happens.
 - `task`: at the set time, the assistant runs your instruction as a new turn and reports the result.
 - `list` shows open jobs with their ids. `cancel` removes one by id.
+- Chat commands, with no turn: `reminders` / `תזכורות` lists them, `cancel 3` / `בטל 3` removes one.
 - A check runs every 30 seconds. A job moves to its next time before it runs, so it never runs twice.
 
 ## Config keys (`modules.reminders`)
@@ -16,7 +17,11 @@ Folder: `gateway/modules/reminders/`. It keeps reminders and timed tasks. Jobs a
 "modules": { "reminders": { "workDays": [0, 1, 2, 3, 4] } }
 ```
 
-- `workDays`: the days that "workdays" means. Sunday is 0. Default `[1, 2, 3, 4, 5]`.
+- `workDays`: the days that "workdays" means. Sunday is 0. Default `[1, 2, 3, 4, 5]`
+  (Israel: `[0, 1, 2, 3, 4]`).
+- `brief`: a morning brief each day, for example `{ "time": "07:30", "days": "workdays" }`.
+  The assistant reads your calendar, mail, reminders and memory and sends a few lines.
+  `prompt` replaces the default text. It is held in quiet hours (core `quietHours`).
 - The time zone is the top-level `timezone`.
 
 ## Tool input

@@ -97,8 +97,12 @@ export async function createGateway({ config, channel, modules, agentFactory, lo
   for (const m of modules) await m.start?.(router);
   channel.start((msg) => router.receive(msg));
   router.resume();
+  // What was held in quiet hours goes out once they end.
+  const quietTimer = setInterval(() => router.flushHeld(), 60_000);
+  quietTimer.unref?.();
 
   const stop = async () => {
+    clearInterval(quietTimer);
     agent.kill?.();
     for (const m of modules) await m.stop?.();
     channel.stop?.();

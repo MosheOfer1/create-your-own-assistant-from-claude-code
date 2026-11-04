@@ -21,9 +21,18 @@ Yes and no words exist in several languages.
 
 `language`, `ownerName`, `timezone`, `dataDir`, `agentCwd`, `claudeBin`, `model`, `tools`, `warm`,
 `warmIdleMin`, `batchMs`, `sessionIdleHours`, `contextMaxK`, `approvalTimeoutMin`,
-`approvalHoldHours`, `freeShell`, `lockHost`, `channels`, `modules`, `version`.
+`approvalHoldHours`, `freeShell`, `lockHost`, `channels`, `modules`, `version`, `strongModel`, `quietHours`.
 Defaults are in `gateway/src/config.js`. `ASSISTANT_HOME` and `ASSISTANT_CONFIG` change the paths.
 A module is off when `modules.<name>.enabled` is `false`.
+
+- `strongModel` (default `opus`): a turn that needs it runs on it, the rest on `model`. It is picked
+  in code (`src/modelpick.js`): `opus:` / `think hard` at the start, planning, analysis, careful
+  writing, code, a long or many-part message. It stays 10 minutes. `sonnet:` forces `model`.
+  `null` turns it off.
+- `quietHours`: times when the assistant sends nothing on its own (a mail summary, the morning
+  brief). They wait and go out when the quiet time ends. Answers and your own reminders never wait.
+  `[{ "from": "22:00", "to": "07:00" }]`; Shabbat: `[{ "days": [5], "from": "16:00", "to": "24:00" },
+  { "days": [6], "from": "00:00", "to": "20:30" }]` (Sunday = 0).
 
 ## Your own modules
 

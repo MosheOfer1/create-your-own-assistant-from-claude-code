@@ -1,14 +1,18 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { State } from '../../src/state.js';
-import { formatLocal, parseLocal, wall } from '../../src/time.js';
+import { formatLocal, parseHM, parseLocal, wall } from '../../src/time.js';
 import { Scheduler } from './scheduler.js';
 
 // Reminders and scheduled tasks. remind: at that time the text comes to the owner, nothing else.
 // task: at that time the assistant runs the prompt as a new turn (asked once, when it is set).
-// Options: { workDays: [1,2,3,4,5] } (which days "workdays" means; Sunday = 0).
+// Options: { workDays: [1,2,3,4,5] } (which days "workdays" means; Sunday = 0),
+// brief: { time: 'HH:MM', days?: 'daily' | 'workdays', prompt? } (a morning brief each day).
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ALL = [0, 1, 2, 3, 4, 5, 6];
+const BRIEF = '[Morning brief, set in the config. Write the owner a short brief for today: calendar events, mail that needs them, '
+  + 'reminders and tasks due today (mcp__schedule__list), and anything in memory that matters today. Only what helps, a few lines. '
+  + 'If there is nothing, say so in one line.]';
 
 export default function reminders(config) {
   const scheduler = new Scheduler({ store: new State(path.join(config.dataDir, 'jobs.json')), tz: config.timezone });
@@ -45,6 +49,27 @@ export default function reminders(config) {
   }
 
   scheduler.on('remind', (job) => router.send(`⏰ ${job.text}`));
+  // The morning brief: a turn of its own each day, held in quiet hours (router.proactive).
+  scheduler.on('brief', () => (router.proactive ?? ((p) => router.enqueue(() => router.turn(p)))).call(router, config.brief?.prompt || BRIEF));
+  const brief = config.brief?.time && parseHM(config.brief.time);
+  if (brief) scheduler.upsert('brief', { kind: 'brief', repeat: { time: config.brief.time, days: config.brief.days === 'workdays' ? workDays : ALL } });
+  else scheduler.remove('brief');
+
+  // Chat commands, so a list or a cancel needs no turn: "reminders" / "תזכורות", "cancel 3" / "בטל 3".
+  const he = config.language === 'he';
+  async function command(text) {
+    const t = String(text).trim();
+    if (/^(\/reminders|reminders|תזכורות)$/i.test(t)) {
+      const list = scheduler.list((j) => ['remind', 'task'].includes(j.kind));
+      return list.length ? list.map(show).join('\n') : (he ? 'אין תזכורות.' : 'Nothing scheduled.');
+    }
+    const m = t.match(/^(?:\/cancel|cancel|בטל)\s+#?(\d+)$/i);
+    if (!m) return null;
+    const job = scheduler.list((j) => j.id === m[1] && ['remind', 'task'].includes(j.kind))[0];
+    if (!job) return he ? `אין תזכורת #${m[1]}.` : `No reminder #${m[1]}.`;
+    scheduler.remove(job.id);
+    return he ? `בוטל: ${show(job)}` : `Cancelled: ${show(job)}`;
+  }
   scheduler.on('task', (job) => router.enqueue(() => router.turn(`[Scheduled task #${job.id}, set by the owner earlier. Do it now and report the result:]\n${job.prompt}`)));
 
   return {
@@ -52,6 +77,7 @@ export default function reminders(config) {
     // A reminder only writes to the owner, so it needs no approval. A task (a turn later) is asked once.
     allowed: ['mcp__schedule__remind', 'mcp__schedule__list', 'mcp__schedule__cancel'],
     routes: { '/schedule': api },
+    command,
     prompt: '## Reminders\nFor "remind me" use mcp__schedule__remind; for something to do or check later use mcp__schedule__task. Times are the owner\'s local time.',
     describers: [(tool, input) => (tool === 'mcp__schedule__task' ? `⏰ Scheduled task (${input.when || `in ${input.in_minutes} min`}${input.repeat && input.repeat !== 'none' ? `, ${input.repeat}` : ''}):\n${String(input.prompt || '')}` : null)],
     scheduler,

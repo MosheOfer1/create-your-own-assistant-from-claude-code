@@ -189,6 +189,17 @@ describe('brain module', () => {
   }
   const owner = (m, text, extra = {}) => m.api({ action: 'remember', text, ...extra });
 
+  test('chat commands: "memory" lists the facts, "forget N" removes one', () => {
+    const { mod: m } = setup({ language: 'he' });
+    assert.equal(m.command('זיכרון'), 'הזיכרון ריק.');
+    m.api({ action: 'remember', text: 'Dana likes tea', type: 'fact' });
+    assert.match(m.command('זיכרון'), /^#1 Dana likes tea \(\?\)$/); // (?) = not in the owner's own words
+    assert.equal(m.command('תשכח 1'), 'שכחתי את #1.');
+    assert.equal(m.command('תשכח 1'), 'אין עובדה #1.');
+    assert.equal(m.command('תשכח את זה'), null);
+    assert.equal(m.brain.facts().length, 0);
+  });
+
   test('remember a rule without a quote is refused', () => {
     const { mod: m } = setup();
     const r = owner(m, 'Never call after 9pm', { type: 'rule' });

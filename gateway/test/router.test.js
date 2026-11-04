@@ -300,6 +300,26 @@ test('model pick: everyday by default, strong when asked or needed, and it stick
   assert.equal(off.agent.calls[0].model, undefined); // the agent's own default
 });
 
+test('quiet hours: notify and proactive wait, then go out; a stale held turn is dropped; answers never wait', async () => {
+  // 2026-11-04 23:00 UTC, a Wednesday; quiet 22:00-07:00.
+  let t = Date.UTC(2026, 10, 4, 23, 0);
+  const s = setup({ config: { timezone: 'UTC', quietHours: [{ from: '22:00', to: '07:00' }] }, now: () => t });
+  await s.router.notify('📧 mail');
+  await s.router.proactive('old brief'); // held 8 hours: stale by the morning
+  await say(s, 'hi'); // the owner's own message is answered at once
+  t = Date.UTC(2026, 10, 5, 6, 30);
+  await s.router.proactive('brief');
+  assert.deepEqual(s.agent.calls.map((c) => c.prompt), ['hi']);
+  s.router.flushHeld(); // still quiet: nothing
+  assert.equal(s.state.get('held').length, 3);
+  t = Date.UTC(2026, 10, 5, 7, 1);
+  s.router.flushHeld();
+  await s.settle();
+  assert.deepEqual(s.state.get('held'), []);
+  assert.ok(s.channel.sent.includes('📧 mail'));
+  assert.deepEqual(s.agent.calls.map((c) => c.prompt), ['hi', 'brief']);
+});
+
 test('any request too long to show in full is refused, never cut (M4)', async () => {
   const s = setup();
   for (const [tool_name, input] of [['Write', { file_path: '/x/f', content: 'y'.repeat(SHOW_MAX + 400) }], ['mcp__x__do', { a: 'y'.repeat(SHOW_MAX + 400) }]]) {

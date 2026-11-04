@@ -5,6 +5,9 @@ vault works. The files are the truth. A SQLite index (`<dataDir>/brain.sqlite`) 
 
 ## What it does
 
+- Chat commands, with no turn: `memory` / `זיכרון` lists the saved facts (`(?)` = not in your own words),
+  `forget 3` / `תשכח 3` removes one.
+
 - Keeps facts in `memory/facts.md`, one per line. The details are in a comment that Obsidian hides:
   `- Dana is vegetarian <!-- id:3 type:preference scope:food source:owner date:2026-11-04 -->`
 - Fact types: `fact`, `preference`, `rule`, `person`, `project`.

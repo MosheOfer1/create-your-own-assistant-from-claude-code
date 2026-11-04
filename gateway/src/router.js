@@ -1,12 +1,14 @@
 import { describe, SHOW_MAX } from './approvals.js';
 import { NEW, STOP, strings } from './i18n.js';
 import { pickModel, STICKY_MS } from './modelpick.js';
+import { quietUntil } from './quiet.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
   ? Object.fromEntries(Object.keys(x).sort().map((key) => [key, x[key]])) : x));
 const GRANT_MS = 10 * 60_000; // a late yes may be used this long
 const RESUME_MS = 15 * 60_000; // a turn cut off by a restart runs again if this recent
+const HELD_TURN_MS = 3 * 3600_000; // a turn held in quiet hours still runs if this recent
 const RESUMED = '[This turn was cut off by a restart.';
 
 // The heart of the gateway: owner messages in, agent turns, approvals, replies out.
@@ -29,6 +31,31 @@ export class Router {
 
   async send(text) {
     return this.channel.send(text?.trim() ? text : this.t.empty);
+  }
+
+  // --- what the assistant says on its own (a mail summary, the morning brief) ---
+  // Held in quiet hours (quiet.js), then sent. A held turn older than HELD_TURN_MS is dropped:
+  // a morning brief at the end of Shabbat is no use. Answers and your own reminders never wait.
+
+  quiet() { return quietUntil(this.config.quietHours, this.config.timezone, this.now()); }
+
+  notify(text) { return this.quiet() ? this.hold({ send: text }) : this.send(text); }
+
+  proactive(prompt) { return this.quiet() ? this.hold({ turn: prompt }) : this.enqueue(() => this.turn(prompt)); }
+
+  hold(item) {
+    this.state.set('held', [...(this.state.get('held') || []), { ...item, at: this.now() }].slice(-20));
+    this.log(`quiet: held a ${item.send ? 'message' : 'turn'}`);
+  }
+
+  flushHeld() {
+    const held = this.state.get('held') || [];
+    if (!held.length || this.quiet()) return;
+    this.state.set('held', []);
+    for (const h of held) {
+      if (h.send) this.send(h.send).catch(() => {});
+      else if (this.now() - h.at < HELD_TURN_MS) this.enqueue(() => this.turn(h.turn));
+    }
   }
 
   // --- sessions ---

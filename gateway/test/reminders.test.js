@@ -303,4 +303,35 @@ describe('reminders module', () => {
     assert.match(d('mcp__schedule__task', { prompt: 'p'.repeat(500), in_minutes: 5, repeat: 'none' }), /^⏰ Scheduled task \(in 5 min\):\np{500}$/); // the whole prompt: never a hidden tail
     assert.equal(hooksOf([mod]).describers.length, 1);
   });
+
+  test('chat commands: list and cancel without a turn, in the owner\'s language', async () => {
+    const { mod } = setup({ language: 'he' });
+    assert.equal(await mod.command('תזכורות'), 'אין תזכורות.');
+    await mod.api({ action: 'remind', text: 'tea', in_minutes: 30 });
+    assert.match(await mod.command('תזכורות'), /^#1 .* tea$/);
+    assert.match(await mod.command('בטל 1'), /^בוטל: #1/);
+    assert.equal(await mod.command('בטל 1'), 'אין תזכורת #1.');
+    assert.equal(await mod.command('בטל את הפגישה'), null); // plain text goes to the agent
+    const en = setup().mod;
+    await en.api({ action: 'remind', text: 'x', in_minutes: 5 });
+    assert.match(await en.command('/cancel #1'), /^Cancelled: #1/);
+  });
+
+  test('a morning brief from the config: a daily job of its own, run through router.proactive, hidden from the list', async () => {
+    const { mod, router } = setup({ brief: { time: '07:30', days: 'workdays' } });
+    const job = mod.scheduler.jobs.brief;
+    assert.equal(job.kind, 'brief');
+    assert.deepEqual(job.repeat, { time: '07:30', days: [1, 2, 3, 4, 5] });
+    assert.equal((await mod.api({ action: 'list' })).text, 'nothing scheduled');
+    router.proactive = function (p) { this.turns.push(p); };
+    mod.start(router);
+    mod.scheduler.upsert('brief', { ...job, at: NOW - 1000 });
+    await mod.scheduler.tick();
+    mod.stop();
+    assert.equal(router.turns.length, 1);
+    assert.match(router.turns[0], /Morning brief/);
+    // No brief in the config: the job goes away.
+    const off = reminders({ dataDir: setup().dir, timezone: 'UTC', language: 'en' });
+    assert.equal(off.scheduler.jobs.brief, undefined);
+  });
 });
