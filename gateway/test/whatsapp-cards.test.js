@@ -13,12 +13,18 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-cards-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 // A channel around a fake socket (as in whatsapp.test.js), with a clock and onWhatsApp.
-function setup({ onWhatsApp = async (d) => [{ exists: true, jid: `${d}@s.whatsapp.net` }], ...opts } = {}) {
+function setup({ onWhatsApp = async (d) => [{ exists: true, jid: `${d}@s.whatsapp.net` }], refuse = null, ...opts } = {}) {
   const sent = [];
   const clock = { t: NOW_MS };
   const sock = {
     ev: new EventEmitter(),
-    sendMessage: async (jid, content) => { sent.push({ jid, content }); return { key: { id: `out${sent.length}` } }; },
+    // The server's answer comes after sendMessage resolves: an ack (2), or a refusal (0) with its code.
+    sendMessage: async (jid, content) => {
+      sent.push({ jid, content });
+      const key = { id: `out${sent.length}` };
+      setImmediate(() => sock.ev.emit('messages.update', [{ key, update: refuse ? { status: 0, messageStubParameters: [refuse] } : { status: 2 } }]));
+      return { key };
+    },
     sendPresenceUpdate: async () => {},
     onWhatsApp: mock.fn(onWhatsApp),
     end: () => {},
@@ -142,6 +148,11 @@ describe('the channel: contacts', () => {
 });
 
 describe('the channel: sendTo', () => {
+  test('a message WhatsApp refuses after sending (463) is an error, not "sent"', async () => {
+    const { ch } = setup({ refuse: '463' });
+    await assert.rejects(ch.sendTo('+1 555-0111', 'hello'), /463.*write to it first/);
+  });
+
   test('a number in international form → checked on WhatsApp → its jid; text only', async () => {
     const { ch, sock, sent } = setup();
     assert.equal(await ch.sendTo('+1 555-0111', 'hello'), 'out1');

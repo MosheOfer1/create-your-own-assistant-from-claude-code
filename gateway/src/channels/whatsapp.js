@@ -237,8 +237,37 @@ export class WhatsAppChannel {
     const parts = file ? [fileContent(file, caption)] : [{ text: String(text) }];
     if (file && caption && parts[0].audio) parts.push({ text: caption });
     let id;
-    for (const content of parts) id = (await this.sock.sendMessage(jid, content))?.key?.id;
+    for (const content of parts) {
+      const ack = this.ackOf();
+      id = (await this.sock.sendMessage(jid, content))?.key?.id;
+      await ack(id);
+    }
     return id;
+  }
+
+  // WhatsApp may refuse a message after sendMessage resolved (error 463: a new number may not
+  // start a chat with someone who never wrote to it). The refusal comes as a messages.update with
+  // status ERROR (0). Listen before sending; wait up to ackMs for the server's ack or refusal.
+  ackOf(ackMs = this.ackMs ?? 10_000) {
+    const seen = new Map();
+    const on = (ups) => { for (const u of ups || []) if (u.key?.id && u.update?.status !== undefined) seen.set(u.key.id, u.update); };
+    this.sock.ev.on('messages.update', on);
+    return (id) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const tick = () => {
+        const u = seen.get(id);
+        const done = (f) => { this.sock.ev.off?.('messages.update', on); f(); };
+        if (u && u.status === 0) {
+          const code = u.messageStubParameters?.[0] || '';
+          return done(() => reject(new Error(code === '463'
+            ? 'whatsapp refused the message (463): this new number cannot start a chat with them. They need to write to it first, or save it as a contact.'
+            : `whatsapp refused the message${code ? ` (${code})` : ''}`)));
+        }
+        if ((u && u.status >= 2) || Date.now() - t0 > ackMs) return done(resolve);
+        setTimeout(tick, 200);
+      };
+      tick();
+    });
   }
 
   async send(text) {
