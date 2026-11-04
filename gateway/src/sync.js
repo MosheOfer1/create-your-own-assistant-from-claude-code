@@ -36,7 +36,10 @@ export function makeSync({ base, app, minGapMs = 60_000, now = Date.now, exec = 
       await git(app, 'fetch', '-q', '--tags', 'origin');
       const target = await git(app, 'rev-parse', `${want}^{commit}`).catch(() => git(app, 'rev-parse', `origin/${want}^{commit}`));
       const differs = target !== await git(app, 'rev-parse', 'HEAD');
-      if (differs && ownUser) {
+      if (differs && ownUser && !/^v\d+\.\d+\.\d+$/.test(want)) {
+        // Root's apply-update takes only a newer release tag (bin/own-user.js): say so, ask nothing.
+        log(`sync: ${want} is not a release tag (vX.Y.Z); as its own user the assistant updates only to a newer release`);
+      } else if (differs && ownUser) {
         const req = path.join(base, 'data', 'update-request.json');
         const asked = fs.existsSync(req) && JSON.parse(fs.readFileSync(req, 'utf8')).version === want;
         if (!asked) {

@@ -61,26 +61,26 @@ function setup({ version, tags = {}, origin = {}, head = sha('0'), ownUser = tru
 
 describe('sync with ownUser: a new version is asked of root', () => {
   test('a version that differs from HEAD: no checkout, no npm, a request file, a log line, "none"', async () => {
-    const s = setup({ version: 'v2', tags: { v2: sha('2') } });
+    const s = setup({ version: 'v2.0.0', tags: { 'v2.0.0': sha('2') } });
     assert.equal(await s.sync(), 'none');
     assert.equal(s.sub('checkout').length, 0);
     assert.equal(s.calls.filter((c) => c.cmd === 'npm').length, 0);
     assert.equal(s.sub('fetch').length, 1); // it still looks: the tag has to be fetched to be compared
-    assert.equal(s.readReq().version, 'v2');
-    assert.ok(s.logs.includes('sync: asked root for v2'), s.logs.join('|'));
+    assert.equal(s.readReq().version, 'v2.0.0');
+    assert.ok(s.logs.includes('sync: asked root for v2.0.0'), s.logs.join('|'));
     assert.ok(!s.logs.some((l) => /code →/.test(l)));
     assert.equal(s.w.head, sha('0')); // HEAD did not move
   });
 
   test('the request is { version, at } with the clock\'s time, at <base>/data/update-request.json', async () => {
-    const s = setup({ version: 'v2', tags: { v2: sha('2') } });
+    const s = setup({ version: 'v2.0.0', tags: { 'v2.0.0': sha('2') } });
     await s.sync();
-    assert.deepEqual(s.readReq(), { version: 'v2', at: T0 });
+    assert.deepEqual(s.readReq(), { version: 'v2.0.0', at: T0 });
     assert.equal(s.req, path.join(s.base, 'data', 'update-request.json'));
   });
 
   test('a second call with the same version does not rewrite the file', async () => {
-    const s = setup({ version: 'v2', tags: { v2: sha('2') } });
+    const s = setup({ version: 'v2.0.0', tags: { 'v2.0.0': sha('2') } });
     await s.sync();
     const old = new Date(2020, 0, 1);
     fs.utimesSync(s.req, old, old); // so a rewrite would show in mtime
@@ -94,27 +94,27 @@ describe('sync with ownUser: a new version is asked of root', () => {
   });
 
   test('a different version rewrites the file', async () => {
-    const s = setup({ version: 'v2', tags: { v2: sha('2'), v3: sha('3') } });
+    const s = setup({ version: 'v2.0.0', tags: { 'v2.0.0': sha('2'), 'v3.0.0': sha('3') } });
     await s.sync();
-    s.setVersion('v3');
+    s.setVersion('v3.0.0');
     s.w.blobAfterPull = 'blob-2';
     s.clock.t += MIN;
     await s.sync();
-    assert.deepEqual(s.readReq(), { version: 'v3', at: T0 + MIN });
-    assert.deepEqual(s.logs.filter((l) => l.includes('asked root')), ['sync: asked root for v2', 'sync: asked root for v3']);
+    assert.deepEqual(s.readReq(), { version: 'v3.0.0', at: T0 + MIN });
+    assert.deepEqual(s.logs.filter((l) => l.includes('asked root')), ['sync: asked root for v2.0.0', 'sync: asked root for v3.0.0']);
   });
 
   test('a different version without a config change in between is also asked for', async () => {
-    const s = setup({ version: 'v2', tags: { v2: sha('2'), v3: sha('3') } });
+    const s = setup({ version: 'v2.0.0', tags: { 'v2.0.0': sha('2'), 'v3.0.0': sha('3') } });
     await s.sync();
-    s.setVersion('v3'); // the blob the fake git reports stays the same
+    s.setVersion('v3.0.0'); // the blob the fake git reports stays the same
     s.clock.t += MIN;
     await s.sync();
-    assert.equal(s.readReq().version, 'v3');
+    assert.equal(s.readReq().version, 'v3.0.0');
   });
 
   test('the same commit as HEAD: no request file, no log', async () => {
-    const s = setup({ version: 'v1', tags: { v1: sha('0') } });
+    const s = setup({ version: 'v1.0.0', tags: { 'v1.0.0': sha('0') } });
     assert.equal(await s.sync(), 'none');
     assert.equal(fs.existsSync(s.req), false);
     assert.ok(!s.logs.some((l) => l.includes('asked root')));
@@ -126,18 +126,19 @@ describe('sync with ownUser: a new version is asked of root', () => {
     assert.equal(fs.existsSync(s.req), false);
   });
 
-  test('a version that exists only as origin/<name> is asked for by that name', async () => {
+  test('a branch (not a release tag) is not asked for: root would refuse it', async () => {
     const s = setup({ version: 'stable', origin: { stable: sha('5') } });
     await s.sync();
-    assert.equal(s.readReq().version, 'stable');
+    assert.equal(fs.existsSync(s.req), false);
     assert.equal(s.sub('checkout').length, 0);
+    assert.ok(s.logs.some((l) => /stable is not a release tag/.test(l)), s.logs.join('|'));
   });
 
   test('a config.json change next to the new version: "restart" (the request is still written)', async () => {
-    const s = setup({ version: 'v2', tags: { v2: sha('2') } });
+    const s = setup({ version: 'v2.0.0', tags: { 'v2.0.0': sha('2') } });
     s.w.blobAfterPull = 'blob-2';
     assert.equal(await s.sync(), 'restart');
-    assert.equal(s.readReq().version, 'v2');
+    assert.equal(s.readReq().version, 'v2.0.0');
     assert.equal(s.sub('checkout').length, 0);
     assert.ok(s.logs.includes('sync: config or code changed'));
   });
@@ -158,23 +159,23 @@ describe('sync with ownUser: a new version is asked of root', () => {
   });
 
   test('an unresolvable version: logged, no request file', async () => {
-    const s = setup({ version: 'v9' });
+    const s = setup({ version: 'v9.0.0' });
     assert.equal(await s.sync(), 'none');
     assert.equal(fs.existsSync(s.req), false);
     assert.ok(s.logs.some((l) => l.startsWith('sync: ')));
   });
 
   test('a stale request for an older version is replaced, not kept', async () => {
-    const s = setup({ version: 'v2', tags: { v2: sha('2') } });
-    fs.writeFileSync(s.req, JSON.stringify({ version: 'v1', at: 1 }));
+    const s = setup({ version: 'v2.0.0', tags: { 'v2.0.0': sha('2') } });
+    fs.writeFileSync(s.req, JSON.stringify({ version: 'v1.0.0', at: 1 }));
     await s.sync();
-    assert.deepEqual(s.readReq(), { version: 'v2', at: T0 });
+    assert.deepEqual(s.readReq(), { version: 'v2.0.0', at: T0 });
   });
 });
 
 describe('sync without ownUser (the contrast)', () => {
   test('the same difference checks out the commit, runs npm ci and writes no request', async () => {
-    const s = setup({ version: 'v2', tags: { v2: sha('2') }, ownUser: false });
+    const s = setup({ version: 'v2.0.0', tags: { 'v2.0.0': sha('2') }, ownUser: false });
     assert.equal(await s.sync(), 'restart');
     assert.equal(s.sub('checkout').length, 1);
     assert.equal(s.w.head, sha('2'));
@@ -207,10 +208,10 @@ describe('sync request → root applyUpdate', () => {
     assert.equal(fs.existsSync(s.req), false);
   });
 
-  test('a branch that sync asked for is refused by root: nothing checked out', async () => {
+  test('a branch in a request file is refused by root: nothing checked out', async () => {
     const s = setup({ version: 'stable', origin: { stable: sha('5') } });
-    await s.sync();
-    assert.equal(s.readReq().version, 'stable');
+    fs.mkdirSync(path.dirname(s.req), { recursive: true });
+    fs.writeFileSync(s.req, JSON.stringify({ version: 'stable', at: 1 }));
     const r = rootRun('v1.2.0');
     assert.throws(() => applyUpdate({ run: r.run, request: s.req, top: s.base }), /not a release tag/);
     assert.deepEqual(r.calls, []);
