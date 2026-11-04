@@ -185,11 +185,15 @@ function syncFromOwner({ owner }) {
 // The assistant wrote { version } to REQUEST (src/sync.js). Root checks out exactly that tag.
 export function applyUpdate({ run = sh, request = REQUEST } = {}) {
   if (!fs.existsSync(request)) return 'no request';
-  const { version } = JSON.parse(fs.readFileSync(request, 'utf8'));
-  fs.rmSync(request, { force: true });
-  if (!TAG.test(String(version || ''))) throw new Error(`not a tag: ${version}`);
+  const text = fs.readFileSync(request, 'utf8');
+  fs.rmSync(request, { force: true }); // first: a bad request must never come back as a loop
+  let version;
+  try { ({ version } = JSON.parse(text)); } catch { throw new Error('the update request is not JSON'); }
+  if (typeof version !== 'string' || !TAG.test(version)) throw new Error(`not a tag: ${version}`);
   run('git', ['-C', APP, 'fetch', '-q', '--tags', 'origin']);
-  const target = run('git', ['-C', APP, 'rev-parse', `${version}^{commit}`]);
+  // The same resolution as src/sync.js: a tag, else a branch on origin.
+  let target;
+  try { target = run('git', ['-C', APP, 'rev-parse', `${version}^{commit}`]); } catch { target = run('git', ['-C', APP, 'rev-parse', `origin/${version}^{commit}`]); }
   run('git', ['-C', APP, 'checkout', '-q', target]);
   run('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: `${APP}/gateway` });
   run('systemctl', ['restart', 'assistant.service']);

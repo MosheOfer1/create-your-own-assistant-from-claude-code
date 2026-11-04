@@ -236,3 +236,28 @@ describe('main()', () => {
     assert.throws(() => main(['frobnicate', 'dana@example.com']), (e) => /^unknown command frobnicate\nUsage: remote\.js/.test(e.message));
   });
 });
+
+describe('main() own-user', () => {
+  const INNER = `'N=$(command -v node || echo ~/.local/opt/node22/bin/node); sudo "$N" ~/.assistant/app/gateway/bin/own-user.js install'`;
+
+  test('returns the ssh -t command that runs sudo with own-user.js install, and runs nothing', () => {
+    const out = main(['own-user', 'dana@example.com']);
+    assert.equal(out, `ssh -t dana@example.com ${INNER}`);
+    assert.ok(out.includes('sudo "$N" ~/.assistant/app/gateway/bin/own-user.js install'));
+  });
+
+  test('--key puts -i <key> between -t and the host', () => {
+    const out = main(['own-user', 'dana@example.com', '--key', '/k/id']);
+    assert.equal(out, `ssh -t -i /k/id dana@example.com ${INNER}`);
+  });
+
+  test('a bad host or key is refused before anything is printed', () => {
+    assert.throws(() => main(['own-user']), /USER@HOST is required/);
+    assert.throws(() => main(['own-user', '-v@example.com']), /USER@HOST is required/);
+    assert.throws(() => main(['own-user', 'dana@example.com', '--key', 'a b']), /not a valid key/);
+  });
+
+  test('the usage lists the own-user command', () => {
+    assert.match(main(['--help']), /^\s*own-user /m);
+  });
+});

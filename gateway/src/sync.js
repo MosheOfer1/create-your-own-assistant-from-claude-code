@@ -38,7 +38,11 @@ export function makeSync({ base, app, minGapMs = 60_000, now = Date.now, exec = 
       if (differs && ownUser) {
         const req = path.join(base, 'data', 'update-request.json');
         const asked = fs.existsSync(req) && JSON.parse(fs.readFileSync(req, 'utf8')).version === want;
-        if (!asked) { fs.writeFileSync(req, JSON.stringify({ version: want, at: now() })); log(`sync: asked root for ${want}`); }
+        if (!asked) {
+          fs.mkdirSync(path.dirname(req), { recursive: true });
+          fs.writeFileSync(req, JSON.stringify({ version: want, at: now() }));
+          log(`sync: asked root for ${want}`);
+        }
       } else if (differs) {
         await git(app, 'checkout', '-q', target);
         await exec('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: path.join(app, 'gateway'), timeout: 10 * 60_000 });
