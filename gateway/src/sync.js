@@ -30,32 +30,42 @@ export function makeSync({ base, app, minGapMs = 60_000, now = Date.now, exec = 
     let changed = (await blob()) !== before;
     const cfg = path.join(repo, 'config.json');
     const want = fs.existsSync(cfg) ? JSON.parse(fs.readFileSync(cfg, 'utf8')).version : null;
-    if (want) {
-      // A tag or branch name only: a value like "--upload-pack=…" must never reach git as an option.
-      if (!/^\w[\w./-]*$/.test(want)) throw new Error(`config.json version is not a tag: ${want}`);
-      await git(app, 'fetch', '-q', '--tags', 'origin');
-      const target = await git(app, 'rev-parse', `${want}^{commit}`).catch(() => git(app, 'rev-parse', `origin/${want}^{commit}`));
-      const differs = target !== await git(app, 'rev-parse', 'HEAD');
-      if (differs && ownUser && !/^v\d+\.\d+\.\d+$/.test(want)) {
-        // Root's apply-update takes only a newer release tag (bin/own-user.js): say so, ask nothing.
-        log(`sync: ${want} is not a release tag (vX.Y.Z); as its own user the assistant updates only to a newer release`);
-      } else if (differs && ownUser) {
-        const req = path.join(base, 'data', 'update-request.json');
-        const asked = fs.existsSync(req) && JSON.parse(fs.readFileSync(req, 'utf8')).version === want;
-        if (!asked) {
-          fs.mkdirSync(path.dirname(req), { recursive: true });
-          fs.writeFileSync(req, JSON.stringify({ version: want, at: now() }));
-          log(`sync: asked root for ${want}`);
-        }
-      } else if (differs) {
-        await git(app, 'checkout', '-q', target);
-        await exec('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: path.join(app, 'gateway'), timeout: 10 * 60_000 });
-        log(`sync: code → ${want}`);
-        changed = true;
-      }
-    }
+    // A failed version step never hides a config change: that one still restarts.
+    if (want) changed = (await version(want).catch((e) => { log(`sync: version: ${String(e.message).split('\n')[0]}`); return false; })) || changed;
     if (changed) log('sync: config or code changed');
     return changed ? 'restart' : 'none';
+  }
+
+  // Own user: the code is root's. The assistant only reads it (no fetch: it may not write there),
+  // and asks root for the release; root fetches, checks and installs it (bin/own-user.js).
+  // safe.directory on the command line: git refuses a repo owned by another user otherwise.
+  async function askRoot(want) {
+    const appGit = async (...a) => (await exec('git', ['-c', `safe.directory=${app}`, '-C', app, ...a], { timeout: 60_000 })).stdout.trim();
+    if (!/^v\d+\.\d+\.\d+$/.test(want)) { log(`sync: ${want} is not a release tag (vX.Y.Z); as its own user the assistant updates only to a newer release`); return false; }
+    const target = await appGit('rev-parse', `refs/tags/${want}^{commit}`).catch(() => null);
+    if (target && target === await appGit('rev-parse', 'HEAD')) return false;
+    const req = path.join(base, 'data', 'update-request.json');
+    const asked = fs.existsSync(req) && JSON.parse(fs.readFileSync(req, 'utf8')).version === want;
+    if (!asked) {
+      fs.mkdirSync(path.dirname(req), { recursive: true });
+      fs.writeFileSync(req, JSON.stringify({ version: want, at: now() }));
+      log(`sync: asked root for ${want}`);
+    }
+    return false;
+  }
+
+  // → true when the code changed here (a restart is needed).
+  async function version(want) {
+    // A tag or branch name only: a value like "--upload-pack=…" must never reach git as an option.
+    if (!/^\w[\w./-]*$/.test(want)) throw new Error(`config.json version is not a tag: ${want}`);
+    if (ownUser) return askRoot(want);
+    await git(app, 'fetch', '-q', '--tags', 'origin');
+    const target = await git(app, 'rev-parse', `${want}^{commit}`).catch(() => git(app, 'rev-parse', `origin/${want}^{commit}`));
+    if (target === await git(app, 'rev-parse', 'HEAD')) return false;
+    await git(app, 'checkout', '-q', target);
+    await exec('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: path.join(app, 'gateway'), timeout: 10 * 60_000 });
+    log(`sync: code → ${want}`);
+    return true;
   }
 
   // One pull at a time; a failure (offline, a conflict) is logged and the turn goes on as before.

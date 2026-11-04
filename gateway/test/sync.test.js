@@ -241,7 +241,7 @@ describe('sync: pinned code version', () => {
       'git rev-parse v1.2.0^{commit}',
       'git rev-parse HEAD',
       `git checkout -q ${sha('a')}`,
-      'npm ci --omit=dev --no-audit --no-fund',
+      'npm ci --omit=dev --ignore-scripts --no-audit --no-fund',
     ]);
     const checkout = s.sub('checkout')[0];
     assert.deepEqual(checkout.args, ['-C', app, 'checkout', '-q', sha('a')]);
@@ -317,7 +317,7 @@ describe('sync: pinned code version', () => {
     s.w.tags.v1 = sha('a');
     s.w.npmError = 'npm ERR! network';
     assert.equal(await s.sync(), 'none');
-    assert.match(s.logs.join('\n'), /sync: npm ERR! network/);
+    assert.match(s.logs.join('\n'), /sync: version: npm ERR! network/);
   });
 });
 
@@ -329,7 +329,7 @@ describe('sync: bad versions and errors', () => {
       s.w.origin[bad] = sha('a');
       assert.equal(await s.sync(), 'none');
       assert.equal(s.logs.length, 1);
-      assert.match(s.logs[0], /^sync: config\.json version is not a tag/);
+      assert.match(s.logs[0], /^sync: version: config\.json version is not a tag/);
       assert.equal(s.sub('checkout').length, 0);
       assert.equal(s.sub('fetch').length, 0);
       assert.ok(!s.calls.some((c) => c.cmd === 'npm'));

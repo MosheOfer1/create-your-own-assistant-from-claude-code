@@ -36,7 +36,9 @@ function setup({ version, tags = {}, origin = {}, head = sha('0'), ownUser = tru
     const out = (s) => ({ stdout: `${s}\n` });
     if (cmd === 'npm') return out('');
     assert.equal(cmd, 'git');
-    const [, , sub, ...rest] = args;
+    // As its own user, git runs with -c safe.directory=... first (the code is root's).
+    const a = args[0] === '-c' ? args.slice(2) : args;
+    const [, , sub, ...rest] = a;
     if (sub === 'pull') { if (w.blobAfterPull !== undefined) w.blob = w.blobAfterPull; return out(''); }
     if (sub === 'fetch') return out('');
     if (sub === 'checkout') { w.head = rest[rest.length - 1]; return out(''); }
@@ -44,7 +46,7 @@ function setup({ version, tags = {}, origin = {}, head = sha('0'), ownUser = tru
       const ref = rest[0];
       if (ref === 'HEAD:config.json') return out(w.blob);
       if (ref === 'HEAD') return out(w.head);
-      const name = /^(.+)\^\{commit\}$/.exec(ref)?.[1];
+      const name = /^(?:refs\/tags\/)?(.+)\^\{commit\}$/.exec(ref)?.[1];
       if (name?.startsWith('origin/') && w.origin[name.slice(7)]) return out(w.origin[name.slice(7)]);
       if (name && w.tags[name]) return out(w.tags[name]);
       throw new Error(`fatal: bad revision '${ref}'`);
@@ -54,7 +56,7 @@ function setup({ version, tags = {}, origin = {}, head = sha('0'), ownUser = tru
   const sync = makeSync({ base, app, minGapMs: MIN, now: () => clock.t, exec, log: (l) => logs.push(l), ownUser });
   const req = path.join(base, 'data', 'update-request.json');
   const readReq = () => JSON.parse(fs.readFileSync(req, 'utf8'));
-  const sub = (name) => calls.filter((c) => c.cmd === 'git' && c.args[2] === name);
+  const sub = (name) => calls.filter((c) => c.cmd === 'git' && (c.args[0] === '-c' ? c.args[4] : c.args[2]) === name);
   const setVersion = (v) => { w.version = v; writeConfig(); };
   return { base, app, w, calls, logs, clock, sync, sub, req, readReq, setVersion };
 }
@@ -65,7 +67,7 @@ describe('sync with ownUser: a new version is asked of root', () => {
     assert.equal(await s.sync(), 'none');
     assert.equal(s.sub('checkout').length, 0);
     assert.equal(s.calls.filter((c) => c.cmd === 'npm').length, 0);
-    assert.equal(s.sub('fetch').length, 1); // it still looks: the tag has to be fetched to be compared
+    assert.equal(s.sub('fetch').length, 0); // no fetch: the code is root's, and root fetches
     assert.equal(s.readReq().version, 'v2.0.0');
     assert.ok(s.logs.includes('sync: asked root for v2.0.0'), s.logs.join('|'));
     assert.ok(!s.logs.some((l) => /code →/.test(l)));
@@ -158,11 +160,20 @@ describe('sync with ownUser: a new version is asked of root', () => {
     assert.ok(s.logs.some((l) => /not a tag/.test(l)), s.logs.join('|'));
   });
 
-  test('an unresolvable version: logged, no request file', async () => {
+  test('a release not here yet: asked of root all the same (root fetches it, the assistant cannot)', async () => {
     const s = setup({ version: 'v9.0.0' });
     assert.equal(await s.sync(), 'none');
-    assert.equal(fs.existsSync(s.req), false);
-    assert.ok(s.logs.some((l) => l.startsWith('sync: ')));
+    assert.equal(s.readReq().version, 'v9.0.0');
+    assert.equal(s.sub('fetch').length, 0);
+  });
+
+  test('a failing version step never hides a config change', async () => {
+    const s = setup({ version: 'v2.0.0', tags: { 'v2.0.0': sha('2') } });
+    s.w.blobAfterPull = 'blob-2';
+    fs.rmSync(path.join(s.base, 'data'), { recursive: true, force: true });
+    fs.writeFileSync(path.join(s.base, 'data'), 'not a folder'); // the request cannot be written
+    assert.equal(await s.sync(), 'restart');
+    assert.ok(s.logs.some((l) => l.startsWith('sync: version: ')), s.logs.join('|'));
   });
 
   test('a stale request for an older version is replaced, not kept', async () => {
