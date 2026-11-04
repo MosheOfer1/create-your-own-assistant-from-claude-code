@@ -3,7 +3,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import path from 'node:path';
 import pino from 'pino';
-import { cardsLine, clean, keepLocation, locationLine, makeLocation, parseVcard } from './cards.js';
+import { cardsLine, clean, keepLocation, locationLine, makeLocation, parseVcard, placeOf } from './cards.js';
 import { ContactBook, normalizePhone, userPart } from './contacts.js';
 
 // WhatsApp on the assistant's OWN number, as a linked device (Baileys). The owner writes to the
@@ -186,6 +186,15 @@ export class WhatsAppChannel {
         const read = readMessage(m, download);
         // A live location's updates only refresh lastLocation: no turn for each step (cards.js).
         if (read.location && !keepLocation(this, read.location, this.now())) continue;
+        if (read.location) {
+          const at = this.lastLocation;
+          (this.placeOf || placeOf)(at.lat, at.lon).then((p) => { if (p && this.lastLocation === at) at.place = p; });
+          // A location with no words of the owner's: kept for later ("where am I?"), no turn. 📍 says it arrived.
+          if (read.text === locationLine(read.location) && !read.quoted) {
+            sock.sendMessage(m.key.remoteJid, { react: { text: '📍', key: m.key } }).catch(() => {});
+            continue;
+          }
+        }
         this.keys.set(m.key.id, m.key);
         if (this.keys.size > 200) this.keys.delete(this.keys.keys().next().value);
         Promise.resolve(this.onMessage({ id: m.key.id, ...read })).catch((e) => this.log(`whatsapp: handler: ${e.message}`));

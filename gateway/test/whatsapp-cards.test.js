@@ -31,7 +31,7 @@ function setup({ onWhatsApp = async (d) => [{ exists: true, jid: `${d}@s.whatsap
   };
   const ch = new WhatsAppChannel({ authDir: 'unused', assistantNumber: '15550100', ownerNumber: '15550101', makeSocket: () => sock, log: () => {}, now: () => clock.t, ...opts });
   const got = [];
-  Object.assign(ch, { onMessage: async (m) => { got.push(m); }, startedAt: NOW_S, creds: { creds: { registered: true } }, saveCreds: () => {} });
+  Object.assign(ch, { onMessage: async (m) => { got.push(m); }, startedAt: NOW_S, creds: { creds: { registered: true } }, saveCreds: () => {}, placeOf: async () => 'Rehavia, Jerusalem' });
   ch.connect();
   return { ch, sock, sent, got, clock };
 }
@@ -85,26 +85,28 @@ describe('readMessage: locations and cards', () => {
 describe('the channel: live location', () => {
   const live = (lat, id) => msg({ liveLocationMessage: { degreesLatitude: lat, degreesLongitude: 2 } }, { id });
 
-  test('the first live message is a turn; updates within 30 min only refresh lastLocation', () => {
-    const { ch, sock, got, clock } = setup();
-    upsert(sock, live(1, 'a'));
-    clock.t += 60_000;
-    upsert(sock, live(1.01, 'b'));
-    clock.t += 29 * 60_000;
-    upsert(sock, live(1.02, 'c'));
-    assert.deepEqual(got.map((m) => m.id), ['a']);
-    assert.match(got[0].text, /^\[Live location: 1, 2/);
-    assert.deepEqual(ch.lastLocation, { lat: 1.02, lon: 2, live: true, at: clock.t });
-    clock.t += 31 * 60_000; // silent too long: a new share
-    upsert(sock, live(1.03, 'd'));
-    assert.deepEqual(got.map((m) => m.id), ['a', 'd']);
+  test('a location with no words is no turn: kept as the last location, a 📍 reaction, the place filled in', async () => {
+    const { ch, sock, got, sent } = setup();
+    upsert(sock, msg({ locationMessage: { degreesLatitude: 5, degreesLongitude: 6 } }, { id: 'p' }));
+    await new Promise((r) => setImmediate(r));
+    assert.equal(got.length, 0);
+    assert.equal(sent.at(-1).content.react.text, '📍');
+    assert.equal(ch.lastLocation.lat, 5);
+    assert.equal(ch.lastLocation.place, 'Rehavia, Jerusalem');
   });
 
-  test('a pinned location is always a turn and is the last known location', () => {
-    const { ch, sock, got } = setup();
-    upsert(sock, live(1, 'a'), msg({ locationMessage: { degreesLatitude: 5, degreesLongitude: 6 } }, { id: 'p' }));
-    assert.deepEqual(got.map((m) => m.id), ['a', 'p']);
-    assert.equal(ch.lastLocation.live, false);
+  test('a location with the owner\'s words is a turn; live updates within 30 min only refresh lastLocation', () => {
+    const { ch, sock, got, clock } = setup();
+    const said = (lat, id) => msg({ liveLocationMessage: { degreesLatitude: lat, degreesLongitude: 2, caption: 'here' } }, { id });
+    upsert(sock, said(1, 'a'));
+    clock.t += 60_000;
+    upsert(sock, live(1.01, 'b'));
+    assert.deepEqual(got.map((m) => m.id), ['a']);
+    assert.match(got[0].text, /^\[Live location: 1, 2/);
+    assert.equal(ch.lastLocation.lat, 1.01);
+    clock.t += 31 * 60_000;
+    upsert(sock, said(1.03, 'd'));
+    assert.deepEqual(got.map((m) => m.id), ['a', 'd']);
   });
 
   test('a stranger\'s location does not move the owner\'s last known location', () => {

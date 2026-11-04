@@ -61,11 +61,12 @@ export class Router {
   }
 
   // The owner's live location, while they share it (the channel keeps it fresh for 30 minutes).
+  // A pinned one counts for 3 hours: the owner often sends it first and asks after.
   whereNow() {
     const l = this.channel.lastLocation;
-    if (!l?.live || this.now() - l.at > LIVE_MS) return '';
+    if (!l || this.now() - l.at > (l.live ? LIVE_MS : 3 * 3600_000)) return '';
     const min = Math.round((this.now() - l.at) / 60_000);
-    return `[The owner's live location (${min} min ago): ${l.lat}, ${l.lon} — https://maps.google.com/?q=${l.lat},${l.lon}]`;
+    return `[The owner's ${l.live ? 'live' : 'last sent'} location (${min} min ago): ${l.lat}, ${l.lon}${l.place ? ` — ${l.place}` : ''} — https://maps.google.com/?q=${l.lat},${l.lon}]`;
   }
 
   // --- sessions ---

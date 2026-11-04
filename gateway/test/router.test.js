@@ -327,7 +327,7 @@ test('"yes 7" for a request that is not open says so and starts no turn', async 
   assert.equal(s.agent.calls.length, 0);
 });
 
-test('a live location goes with each turn while it is fresh; an old or a fixed one does not', async () => {
+test('a live location goes with each turn while it is fresh; an old one does not; a pinned one counts for 3 hours', async () => {
   let t = 10_000_000;
   const s = setup({ now: () => t });
   s.channel.lastLocation = { lat: 32.1, lon: 34.8, at: t - 3 * 60_000, live: true };
@@ -336,9 +336,12 @@ test('a live location goes with each turn while it is fresh; an old or a fixed o
   t += 40 * 60_000;
   await say(s, 'and now?');
   assert.equal(s.agent.calls[1].prompt, 'and now?');
-  s.channel.lastLocation = { lat: 1, lon: 2, at: t, live: false };
+  s.channel.lastLocation = { lat: 1, lon: 2, at: t, live: false, place: 'Rehavia, Jerusalem' };
   await say(s, 'x');
-  assert.equal(s.agent.calls[2].prompt, 'x');
+  assert.match(s.agent.calls[2].prompt, /^\[The owner's last sent location \(0 min ago\): 1, 2 — Rehavia, Jerusalem — /);
+  t += 4 * 3600_000; // a pinned one counts for 3 hours
+  await say(s, 'y');
+  assert.equal(s.agent.calls[3].prompt, 'y');
 });
 
 test('any request too long to show in full is refused, never cut (M4)', async () => {

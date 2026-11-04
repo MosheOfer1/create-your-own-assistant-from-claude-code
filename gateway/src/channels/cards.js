@@ -36,6 +36,16 @@ export function locationLine(l) {
   return `[${parts.filter(Boolean).join(' — ')}]`;
 }
 
+// The neighbourhood and city of a point, from OpenStreetMap (Nominatim, free, no key). '' on failure.
+export async function placeOf(lat, lon, { fetch = globalThis.fetch, language = 'he' } = {}) {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=16&accept-language=${language}&lat=${lat}&lon=${lon}`,
+      { headers: { 'user-agent': 'personal-assistant-gateway/1' }, signal: AbortSignal.timeout(5000) });
+    const a = (await r.json())?.address || {};
+    return [a.neighbourhood || a.suburb || a.quarter, a.city || a.town || a.village].filter(Boolean).join(', ');
+  } catch { return ''; }
+}
+
 // Keeps channel.lastLocation = { lat, lon, at, live, name?, address?, accuracy? } and says whether
 // this location is a turn. A pinned location and the start of a live share are; a live share's
 // updates are not (a walk across town would start a turn every few seconds).
