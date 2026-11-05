@@ -226,6 +226,20 @@ describe('brain module', () => {
     assert.equal(m.brain.facts().length, 0);
   });
 
+  test('after outside text a memory write runs at once, marked; forget still asks', async () => {
+    const { mod: m, dir } = setup();
+    assert.equal(m.autoAllow('mcp__brain__note', {}, { tainted: true }), false);
+    const note = await m.approve({ tool_name: 'mcp__brain__note', input: { path: 'x.md', content: 'sent the mail' }, tainted: true });
+    assert.deepEqual(note, { allow: true, reason: 'free-marked', input: { path: 'x.md', content: 'sent the mail', outside: true } });
+    assert.equal(await m.approve({ tool_name: 'mcp__brain__forget', input: { id: 1 }, tainted: true }), null);
+    assert.equal(await m.approve({ tool_name: 'mcp__brain__note', input: {}, tainted: false }), null);
+    m.api({ action: 'note', ...note.input });
+    assert.match(fs.readFileSync(path.join(dir, 'x.md'), 'utf8'), /טקסט חיצוני[^\n]*\nsent the mail/);
+    m.context('Please remember: never call me after 9pm, thanks');
+    const r = owner(m, 'Never call late', { type: 'fact', quote: 'never call me after 9pm', outside: true });
+    assert.match(r.text, /from agent/);
+  });
+
   test('remember a rule without a quote is refused', () => {
     const { mod: m } = setup();
     const r = owner(m, 'Never call after 9pm', { type: 'rule' });
