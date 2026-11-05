@@ -49,4 +49,3 @@ Save it with `setup.js secret EMAIL_APP_PASSWORD`. The agent never sees it.
 - One triage looks at 20 mails at most. `search` returns 50 at most.
 - Mail is sent as plain text. No HTML, and no attachments on send.
 - Triage needs the password. Without it the check does not start.
-- Not yet tried with a real mailbox. See [live checks](../live-checks.md).

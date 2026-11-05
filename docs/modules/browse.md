@@ -82,4 +82,3 @@ Your logins live in this profile. So a click can send mail as you. The rules fol
 - Two logins in one profile can log the first one out. Use one identity for each account.
 - The browser tool of the CLI (`bin/browse.js`) is a separate Chrome with a local debugging port
   on 127.0.0.1. It keeps its profile in `~/.assistant/browser/<identity>`.
-- Not yet tried with a real login. See [live checks](../live-checks.md).

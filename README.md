@@ -3,8 +3,6 @@
 Your own assistant on WhatsApp. Claude Code builds it and runs it
 on your computer, or on a machine you already have.
 
-> Work in progress. Some parts are not yet tried for real. See [Status](#status).
-
 ## What it does
 
 - **Chat on WhatsApp.** The assistant has its own phone number. You write to it like to a friend.
@@ -130,11 +128,6 @@ The hooks run `scripts/scrub-scan.mjs` on each commit. It looks for your private
 names, phone numbers, hosts. Keep the pattern list outside the repo, in
 `~/.config/scrub-patterns.txt` (one pattern per line). CI runs the tests and
 gitleaks on every push.
-
-## Status
-
-This is a work in progress. [docs/live-checks.md](docs/live-checks.md) lists
-what is tested with fakes only and not yet tried for real.
 
 ## License
 

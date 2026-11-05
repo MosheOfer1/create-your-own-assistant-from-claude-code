@@ -94,4 +94,3 @@ else and taints it at once.
 - Office: old `doc`/`xls`/`ppt`, password-protected files and zip64 files give no text (the file is
   still saved). Excel dates stay numbers. Images inside documents are not read.
 - An audio file sent as a document (an mp3) is saved, not transcribed.
-- Not yet tried with real voice notes or a real sherpa model. See [live checks](../live-checks.md).

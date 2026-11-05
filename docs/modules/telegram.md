@@ -79,4 +79,3 @@ owner's answer, the same as typing it.
 - A press on a request that ended without a result text (expired, or stopped with "stop") reaches the
   router as `yes N`. The router finds no open request N and treats it as a normal message.
 - A bot cannot write first to other people, so `sendTo` is WhatsApp only.
-- Not yet tried against the real service. See [live checks](../live-checks.md).

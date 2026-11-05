@@ -104,5 +104,3 @@ The channel has no tools. The owner's messages always pass. Messages from other 
 - Messages of a kind the code does not read (stickers, polls) get a short "cannot read this" reply.
 - The contact list holds only what WhatsApp sends to the linked device. It can be empty at first.
 - `lastLocation` lives in memory. A restart forgets it.
-- Not yet tried against the real service (live locations and contact events most of all).
-  See [live checks](../live-checks.md).

@@ -51,4 +51,3 @@ All four tools run freely. Writing the brain reaches nobody.
   git repo gets no commits.
 - If git add or push fails, the module logs it and goes on.
 - Brain text comes back to the agent in later turns. Do not store text from untrusted pages as rules.
-- Not yet tried in a real Obsidian vault with git. See [live checks](../live-checks.md).

@@ -55,7 +55,6 @@ All four names above. They live in `data/.env` only.
 - The machine must stay on and awake. Linux without linger stops at logout. The tool says what to ask the admin.
 - On Ubuntu with restricted user namespaces, Chromium may need `--no-sandbox`.
 - Only systemd (Linux) and launchd (macOS) are supported. On Windows, use WSL2 with systemd.
-- Not yet tried on clean machines. See [live checks](../live-checks.md).
 
 ## Own user (`own-user.js`, Linux and WSL2)
 
