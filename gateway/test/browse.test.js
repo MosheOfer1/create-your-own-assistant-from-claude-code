@@ -925,13 +925,13 @@ describe('browse module', () => {
     assert.equal(await ask(mod, 'click', { target: 'div.T-I' }), null);
   });
 
-  test('approve: in a tainted conversation every step asks, also a plain link', async () => {
+  test('approve: in a tainted conversation a step that does not act stays free; long typing asks', async () => {
     const { mod } = await live();
     for (const [t, i] of [['click', { target: 'Medium' }], ['type', { target: 'Search', text: 'shirts' }], ['press', { key: 'Tab' }]]) {
-      assert.equal(await ask(mod, t, i, true), null, t);
+      assert.deepEqual(await ask(mod, t, i, true), { allow: true, reason: 'free' }, t);
     }
-    const t = strings('en');
-    assert.ok(mod.describers[0]('mcp__browse__click', { target: 'Medium' }, t).startsWith(t.taint), 'the owner sees why it asks');
+    assert.equal(await ask(mod, 'type', { target: 'Search', text: 'x'.repeat(61) }, true), null, 'long text asks');
+    assert.deepEqual(await ask(mod, 'type', { target: 'Search', text: 'x'.repeat(61) }, false), { allow: true, reason: 'free' });
   });
 
   test('approve: keys that can submit ask (Enter, Control+Enter, Meta+Enter); Tab is free', async () => {
@@ -1172,7 +1172,7 @@ describe('browse module with the Router', () => {
     s.approvals.resolve(item.id, decision);
   }
 
-  test('an untainted click on a plain link is free; after a page was read it asks, and a yes lets it run', async () => {
+  test('a click on a plain link is free, also after a page was read', async () => {
     const clicked = [];
     const s = setup({ finders: { 'role:link': (o) => fakeLocator({ count: o.name === 'Inbox' ? 1 : 0, el: fakeDom({ tag: 'A', text: 'Inbox' }), onClick: () => clicked.push('Inbox') }) } });
     await s.mod.api({ action: 'open', url: 'https://mail.example.com/' });
@@ -1180,10 +1180,7 @@ describe('browse module with the Router', () => {
     assert.deepEqual(await s.router.requestApproval(req), { allow: true, reason: 'free' });
     assert.equal((await s.mod.api({ action: 'click', target: 'Inbox' })).ok, true);
     s.router.markTainted('mcp__browse__text');
-    const pending = s.router.requestApproval(req);
-    await answer(s, 'allow');
-    assert.equal((await pending).allow, true);
-    assert.match(s.channel.sent.at(-1), /Click "Inbox" → a "Inbox"/);
+    assert.deepEqual(await s.router.requestApproval(req), { allow: true, reason: 'free' });
     assert.equal((await s.mod.api({ action: 'click', target: 'Inbox' })).ok, true);
     assert.deepEqual(clicked, ['Inbox', 'Inbox']);
   });

