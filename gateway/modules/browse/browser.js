@@ -212,10 +212,11 @@ export class Browser {
     return `clicked; now ${p.url()}\n${await this.wall(p)}`.trim();
   }
 
-  async type(target, text, { guard } = {}) {
+  // secretOk: the gateway types a vault value or a code the owner sent (never the agent's text).
+  async type(target, text, { guard, secretOk = false } = {}) {
     const p = await this.page();
     const el = await this.pinned(p, target);
-    if (await el.evaluate(secretField)) throw new Error('refused: a password, card or code field. The owner types those themselves.');
+    if (!secretOk && await el.evaluate(secretField)) throw new Error('refused: a password, card or code field. The owner types those themselves.');
     await this.guarded(guard, el);
     await el.fill(String(text));
     return 'typed';

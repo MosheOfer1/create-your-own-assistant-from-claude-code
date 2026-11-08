@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { plainUrl } from '../../src/policy.js';
 import { Browser } from './browser.js';
 import { judge } from './guard.js';
+import { Vault, vaultCommand } from './vault.js';
 
 // Browsing for the agent. Options (config.modules.browse):
 //   identity ('assistant'): the profile name; one Chrome profile per identity
@@ -18,6 +19,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STEPS = /^mcp__browse__(click|type|press|select|upload|submit)$/;
 const TICKET_MS = 2 * 60_000;
 const TAINT_TYPE_MAX = 60;
+const CODE_WAIT_MS = 4 * 60_000;
+const CODE = /^\s*(\d[\d -]{2,10}\d)\s*$/;
 const keyOf = (action, i = {}) => JSON.stringify([action, i.target ?? null, i.text ?? null, i.key ?? null]);
 const actionOf = (tool) => tool.slice('mcp__browse__'.length);
 
@@ -25,6 +28,31 @@ export default function browse(config, { chromium, check } = {}) {
   const identity = String(config.identity || 'assistant').replace(/[^\w-]/g, '_');
   const browser = new Browser({ profileDir: path.join(config.dataDir, 'browser', identity), executablePath: config.browserPath, proxy: config.proxy, chromium, check });
   const outbox = path.join(config.agentCwd, 'outbox');
+  const vault = new Vault(path.join(config.dataDir, 'vault.json'));
+  let router = null;
+  let waiting = null; // { resolve, timer }: a code the owner is asked for
+
+  // The agent asks for a code; the owner's next message that is only digits goes into the page.
+  // It never reaches the agent.
+  async function code(a) {
+    if (!router) throw new Error('no chat to ask in');
+    if (waiting) throw new Error('already waiting for a code');
+    const site = (() => { try { return new URL(browser.url).hostname; } catch { return ''; } })();
+    const got = new Promise((resolve) => { waiting = { resolve, timer: setTimeout(() => resolve(null), CODE_WAIT_MS) }; });
+    await router.send(`📲 שלח לי את הקוד שקיבלת${a.from ? ` מ${a.from}` : ''}${site ? ` (${site})` : ''}. רק הספרות.`);
+    const value = await got;
+    clearTimeout(waiting?.timer);
+    waiting = null;
+    if (!value) throw new Error('no code came from the owner in 4 minutes');
+    await browser.type(a.target, value, { secretOk: true });
+    return 'typed the code the owner sent';
+  }
+
+  async function fill(a) {
+    const item = vault.get(String(a.item || ''), browser.url);
+    await browser.type(a.target, item.value, { secretOk: Boolean(item.site) });
+    return `typed ${a.item}`;
+  }
 
   // The approval step (approve) looks at the live page and either passes a step or leaves it to
   // the owner. `freed`: steps it passed itself. `owner`: steps the owner said yes to, one use each.
@@ -49,7 +77,18 @@ export default function browse(config, { chromium, check } = {}) {
     type: (a) => browser.type(a.target, a.text, { guard: guardFor(a) }),
     press: (a) => browser.press(a.key, { guard: guardFor(a) }),
     shot: () => browser.shot(path.join(outbox, `page-${Date.now()}.png`)),
+    vault: () => (vault.names().join('\n') || 'the vault is empty'),
+    fill,
+    code,
   };
+
+  function command(text) {
+    if (waiting) {
+      const m = CODE.exec(text);
+      if (m) { waiting.resolve(m[1].replace(/[ -]/g, '')); return '✅ הקוד בדרך לאתר'; }
+    }
+    return vaultCommand(vault, text);
+  }
 
   async function api(a) {
     const fn = Object.hasOwn(actions, a.action) && actions[a.action];
@@ -93,16 +132,25 @@ export default function browse(config, { chromium, check } = {}) {
   return {
     mcp: { browse: { command: process.execPath, args: [path.join(HERE, 'mcp.js')] } },
     // open is not here: it must reach the gateway, which checks the address once the conversation is tainted.
-    allowed: ['text', 'links', 'shot'].map((t) => `mcp__browse__${t}`),
+    allowed: ['text', 'links', 'shot', 'vault'].map((t) => `mcp__browse__${t}`),
     untrusted: [/^mcp__browse__/],
     // Steps are never free here: approve() judges them on the live page.
-    autoAllow: (tool, input = {}, { tainted = false } = {}) => tool === 'mcp__browse__open' && (!tainted || plainUrl(input.url)),
+    // fill and code type only the owner's own values (a password only on its site); the step
+    // that sends the form still asks.
+    autoAllow: (tool, input = {}, { tainted = false } = {}) => ['mcp__browse__fill', 'mcp__browse__code'].includes(tool)
+      || (tool === 'mcp__browse__open' && (!tainted || plainUrl(input.url))),
+    command,
+    start(r) { router = r; },
     approve,
     approved,
     describers: [describe],
     routes: { '/browse': api },
     prompt: '## Browser\nUse mcp__browse__open/text/links/click/type/press/shot for websites (public pages only). Read text first; a screenshot only when layout matters. '
-      + 'Name a link or button by its exact visible text. A page saying LOGIN NEEDED: ask the owner to log in themselves; never type passwords or card numbers. '
+      + 'Name a link or button by its exact visible text. '
+      + 'Logins and forms: the owner\'s details (ID number, phone, address, passwords for given sites) are in a vault. mcp__browse__vault lists the names; '
+      + 'mcp__browse__fill types one into a field without you seeing it. For a code sent by SMS or mail, mcp__browse__code asks the owner in the chat and types their answer. '
+      + 'So log in by yourself: never ask the owner to log in or to type for you. Something missing from the vault: ask once and tell them to add it with /כספת NAME VALUE (NAME@site VALUE for a password). '
+      + 'Never type a password or card number yourself. '
       + 'Plain clicks, short typing and keys run freely; a step that sends, pays, books or submits a form asks the owner, and so does opening an address with a query after a page was read. '
       + 'That ask is the one question for the task: do not ask the same in the chat before it. Make it count: fill everything first, so the last click is the only ask.',
     browser,

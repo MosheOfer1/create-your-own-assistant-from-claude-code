@@ -860,9 +860,9 @@ describe('browse module', () => {
     return { mod, page, f, dir };
   }
 
-  test('allowed is text/links/shot only: open must reach the gateway', () => {
+  test('allowed is text/links/shot/vault only: open must reach the gateway', () => {
     const { mod } = make();
-    assert.deepEqual(mod.allowed, ['mcp__browse__text', 'mcp__browse__links', 'mcp__browse__shot']);
+    assert.deepEqual(mod.allowed, ['mcp__browse__text', 'mcp__browse__links', 'mcp__browse__shot', 'mcp__browse__vault']);
     for (const t of ['open', 'click', 'type', 'press']) assert.ok(!mod.allowed.includes(`mcp__browse__${t}`));
   });
 
@@ -1225,5 +1225,64 @@ describe('bin/browse.js', () => {
   test('no arguments also prints Usage', async () => {
     const { stdout } = await run(process.execPath, ['--disable-warning=ExperimentalWarning', bin], { env, timeout: 15000 });
     assert.match(stdout, /^Usage: browse\.js COMMAND/);
+  });
+});
+
+describe('vault: fill and code', () => {
+  async function site(url, { secret = true } = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-mod-'));
+    const filled = [];
+    const page = fakePage({ url, finders: { label: () => fakeLocator({ count: 1, secret, onFill: (v) => filled.push(v) }) } });
+    const mod = browse({ dataDir: path.join(dir, 'data'), agentCwd: path.join(dir, 'agent') }, { chromium: fakeChromium(page).chromium, check: allowAll });
+    const sent = [];
+    mod.start({ send: async (x) => { sent.push(x); } });
+    await mod.api({ action: 'open', url });
+    return { mod, filled, sent };
+  }
+
+  test('fill types a site password only on its site; the agent sees only the name', async () => {
+    const s = await site('https://www.btl.gov.il/login');
+    s.mod.command('/כספת סיסמה@btl.gov.il S3cret');
+    assert.match((await s.mod.api({ action: 'vault' })).text, /סיסמה \(only on btl\.gov\.il\)/);
+    const r = await s.mod.api({ action: 'fill', target: 'Password', item: 'סיסמה' });
+    assert.deepEqual(r, { ok: true, text: 'typed סיסמה' });
+    assert.deepEqual(s.filled, ['S3cret']);
+    const evil = await site('https://evil.example.com/');
+    evil.mod.command('/כספת סיסמה@btl.gov.il S3cret');
+    const bad = await evil.mod.api({ action: 'fill', target: 'Password', item: 'סיסמה' });
+    assert.equal(bad.ok, false);
+    assert.doesNotMatch(bad.error, /S3cret/);
+    assert.deepEqual(evil.filled, []);
+  });
+
+  test('a personal value (no site) never goes into a password field', async () => {
+    const s = await site('https://a.example.com/');
+    s.mod.command('/כספת תז 123456789');
+    assert.equal((await s.mod.api({ action: 'fill', target: 'Password', item: 'תז' })).ok, false);
+    const plain = await site('https://a.example.com/', { secret: false });
+    plain.mod.command('/כספת תז 123456789');
+    assert.equal((await plain.mod.api({ action: 'fill', target: 'ID', item: 'תז' })).ok, true);
+    assert.deepEqual(plain.filled, ['123456789']);
+  });
+
+  test('code asks the owner; their digits go into the page and never to the agent', async () => {
+    const s = await site('https://www.btl.gov.il/otp');
+    const pending = s.mod.api({ action: 'code', target: 'Code', from: 'ביטוח לאומי' });
+    for (let i = 0; i < 50 && !s.sent.length; i++) await new Promise((r) => setTimeout(r, 2));
+    assert.match(s.sent[0], /ביטוח לאומי/);
+    assert.equal(s.mod.command('hello'), null, 'other text is a normal message');
+    assert.match(s.mod.command('482 913'), /הקוד/);
+    assert.deepEqual(await pending, { ok: true, text: 'typed the code the owner sent' });
+    assert.deepEqual(s.filled, ['482913']);
+    assert.equal(s.mod.command('123456'), null, 'no code is awaited any more');
+  });
+
+  test('fill and code run without asking; vault is a free read', () => {
+    const mod = browse({ dataDir: os.tmpdir(), agentCwd: os.tmpdir() }, { chromium: fakeChromium(fakePage()).chromium, check: allowAll });
+    for (const tainted of [false, true]) {
+      assert.equal(mod.autoAllow('mcp__browse__fill', {}, { tainted }), true);
+      assert.equal(mod.autoAllow('mcp__browse__code', {}, { tainted }), true);
+    }
+    assert.ok(mod.allowed.includes('mcp__browse__vault'));
   });
 });

@@ -14,6 +14,21 @@ profile that stays between runs. Logins stay too. One profile for each identity.
 - The same actions exist for your own Claude Code sessions: `gateway/bin/browse.js` and the
   `web-browse` skill.
 
+## Vault and codes: logins by itself
+
+- The vault holds your details: ID number, phone, address, and passwords for given sites. You add
+  them in the chat: `/vault NAME VALUE` (or `/כספת`), `/vault NAME@site.com VALUE` for a password,
+  `/vault delete NAME`, `/vault` to list. These messages never reach the agent, and the reply
+  never repeats the value. Delete your message from the chat afterwards.
+- The agent sees only the names (`vault`). `fill` types a value into a field; the agent never sees
+  it. A value with a site is typed only on `https` pages of that site (also into a password
+  field). A value without a site never goes into a password, card or code field.
+- `code`: the agent asks you in the chat for a code you got (SMS, mail). Your next message that is
+  only digits goes straight into the page, not to the agent. It waits 4 minutes.
+- `fill` and `code` run without asking. The step that sends the form still follows the rules below.
+- The file is `<dataDir>/vault.json` (0600). It is plain JSON: whoever reads the data folder reads
+  it, like the other secrets there.
+
 ## Config keys (`modules.browse`)
 
 - `identity`: the profile name. Default `assistant`. The profile is `<dataDir>/browser/<identity>`.

@@ -17,5 +17,8 @@ serve('browse', {
   click: { description: 'Click a visible link or button.', schema: obj({ target }, ['target']), run: call('click') },
   type: { description: 'Fill a field (by label, placeholder or CSS) with text.', schema: obj({ target, text: { type: 'string' } }, ['target', 'text']), run: call('type') },
   press: { description: 'Press a key (Enter, Tab, Escape, ArrowDown…).', schema: obj({ key: { type: 'string' } }, ['key']), run: call('press') },
+  vault: { description: "Names of the owner's saved details (ID, phone, passwords for given sites). Values are never shown.", schema: obj({}), run: call('vault') },
+  fill: { description: "Type a saved vault item into a field; you never see the value. A password works only on its site.", schema: obj({ target, item: { type: 'string', description: 'Vault name, as mcp__browse__vault lists it' } }, ['target', 'item']), run: call('fill') },
+  code: { description: 'Ask the owner in the chat for a code they got (SMS, mail) and type it into the field. Waits up to 4 minutes.', schema: obj({ target, from: { type: 'string', description: 'Who sent it, e.g. ביטוח לאומי' } }, ['target']), run: call('code') },
   shot: { description: 'Screenshot of the page; returns a PNG path to Read.', schema: obj({}), run: call('shot') },
 });
