@@ -5,6 +5,7 @@ import path from 'node:path';
 import pino from 'pino';
 import { cardsLine, clean, keepLocation, locationLine, makeLocation, parseVcard, placeOf } from './cards.js';
 import { ContactBook, normalizePhone, userPart } from './contacts.js';
+import { waText } from './wa-text.js';
 
 // WhatsApp on the assistant's OWN number, as a linked device (Baileys). The owner writes to the
 // assistant like to any contact. Only the owner's messages pass; everything else is dropped here.
@@ -244,8 +245,8 @@ export class WhatsAppChannel {
     if (!this.sock) throw new Error('whatsapp: not connected yet');
     if (!String(text).trim() && !file) throw new Error('whatsapp: nothing to send');
     const jid = await this.resolve(to);
-    const caption = String(text).trim() ? String(text) : undefined;
-    const parts = file ? [fileContent(file, caption)] : [{ text: String(text) }];
+    const caption = String(text).trim() ? waText(String(text)) : undefined;
+    const parts = file ? [fileContent(file, caption)] : [{ text: waText(String(text)) }];
     if (file && caption && parts[0].audio) parts.push({ text: caption });
     let id;
     for (const content of parts) {
@@ -282,13 +283,14 @@ export class WhatsAppChannel {
   }
 
   async send(text) {
-    const sent = await this.sock.sendMessage(this.chat, { text });
+    const sent = await this.sock.sendMessage(this.chat, { text: waText(text) });
     return sent?.key?.id;
   }
 
   // Files to the owner: images as images, audio as audio, anything else as a document.
   async sendFile(buf, { mimetype, fileName, caption = '' }) {
     const kind = /^image\/(jpeg|png|webp)$/.test(mimetype) ? 'image' : /^audio\//.test(mimetype) ? 'audio' : 'document';
+    caption = waText(caption);
     const msg = kind === 'image' ? { image: buf, caption } : kind === 'audio' ? { audio: buf, mimetype } : { document: buf, mimetype, fileName, caption };
     const sent = await this.sock.sendMessage(this.chat, msg);
     return sent?.key?.id;
