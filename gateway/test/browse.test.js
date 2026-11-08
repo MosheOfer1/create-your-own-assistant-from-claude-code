@@ -1286,3 +1286,21 @@ describe('vault: fill and code', () => {
     assert.ok(mod.allowed.includes('mcp__browse__vault'));
   });
 });
+
+describe('ask: money', () => {
+  const m = (tool, input, el, url = 'https://www.mrcut.org/') => judge(`mcp__browse__${tool}`, input, url, el, { ask: 'money' });
+  test('logins, confirm, booking and form submits run freely', () => {
+    for (const name of ['אישור', 'התחבר', 'שלח קוד', 'שלחו לי את הקוד', 'Send code', 'קבע תור', 'Book', 'Confirm'])
+      assert.equal(m('click', { target: name }, { name, submits: true }), 'allow', name);
+    assert.equal(m('press', { key: 'Enter' }), 'allow');
+  });
+  test('paying, deleting, publishing and sending a message still ask', () => {
+    for (const name of ['לתשלום', 'Pay now', 'מחק', 'Delete', 'פרסם', 'שלח הודעה', 'Send', 'Buy'])
+      assert.equal(m('click', { target: name }, { name }), 'critical', name);
+    assert.equal(m('click', { target: 'x' }, { name: 'x' }, 'https://shop.com/checkout'), 'critical');
+    assert.equal(m('press', { key: 'Control+Enter' }), 'critical');
+  });
+  test('the default still asks for a form submit', () => {
+    assert.equal(judge('mcp__browse__click', { target: 'התחבר' }, 'https://a.com/', { name: 'התחבר', submits: true }), 'critical');
+  });
+});

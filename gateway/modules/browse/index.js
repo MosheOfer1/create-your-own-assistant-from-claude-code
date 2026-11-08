@@ -7,6 +7,7 @@ import { Vault, vaultCommand } from './vault.js';
 
 // Browsing for the agent. Options (config.modules.browse):
 //   identity ('assistant'): the profile name; one Chrome profile per identity
+//   ask ('acts'): 'money' asks only for paying, deleting, publishing, sending a message
 //   browserPath: a Chrome/Chromium binary (default: Playwright's Chromium), proxy: e.g. socks5://127.0.0.1:1080
 // Reading pages (text, links, shot) runs freely (public pages only, checked in code). The owner's
 // logins live in this profile, so a click can send mail as the owner. Therefore:
@@ -65,7 +66,7 @@ export default function browse(config, { chromium, check } = {}) {
 
   // A step the owner did not approve is judged again on the element it really acts on, right
   // before it acts: the page may have changed since the approval step looked.
-  const guardFor = (a) => (takeOwner(keyOf(a.action, a)) ? undefined : (el) => (judge(`mcp__browse__${a.action}`, a, browser.url, el) === 'critical'
+  const guardFor = (a) => (takeOwner(keyOf(a.action, a)) ? undefined : (el) => (judge(`mcp__browse__${a.action}`, a, browser.url, el, { ask: config.ask }) === 'critical'
     ? `this step acts (${el ? `${el.submits ? 'submits a form, ' : ''}"${el.name.slice(0, 60)}"` : 'a key or page that acts'}), so the owner must approve it. Call it again to ask.`
     : null));
 
@@ -101,7 +102,7 @@ export default function browse(config, { chromium, check } = {}) {
     if (!STEPS.test(tool)) return null;
     const key = keyOf(actionOf(tool), input);
     const el = /__(click|type)$/.test(tool) ? await browser.inspect(input.target).catch(() => null) : null;
-    const verdict = judge(tool, input, browser.url, el);
+    const verdict = judge(tool, input, browser.url, el, { ask: config.ask });
     remember(key, { el, verdict, tainted });
     // After a page was read, a step that does not act still runs freely, so a booking asks once, at
     // the end. Typing stays short: a page's script sees what is typed before any submit.
@@ -151,8 +152,11 @@ export default function browse(config, { chromium, check } = {}) {
       + 'mcp__browse__fill types one into a field without you seeing it. For a code sent by SMS or mail, mcp__browse__code asks the owner in the chat and types their answer. '
       + 'So log in by yourself: never ask the owner to log in or to type for you. Something missing from the vault: ask once and tell them to add it with /כספת NAME VALUE (NAME@site VALUE for a password). '
       + 'Never type a password or card number yourself. '
-      + 'Plain clicks, short typing and keys run freely; a step that sends, pays, books or submits a form asks the owner, and so does opening an address with a query after a page was read. '
-      + 'That ask is the one question for the task: do not ask the same in the chat before it. Make it count: fill everything first, so the last click is the only ask.',
+      + (config.ask === 'money'
+        ? 'Logging in, forms, confirm and booking steps run freely; paying, deleting, publishing and sending a message ask the owner, and so does opening an address with a query after a page was read. '
+          + 'So before the step that books, orders or commits the owner to something, stop and ask once in the chat: a short summary (who, what, when, price) and "approve?". Do the rest without asking.'
+        : 'Plain clicks, short typing and keys run freely; a step that sends, pays, books or submits a form asks the owner, and so does opening an address with a query after a page was read. '
+          + 'That ask is the one question for the task: do not ask the same in the chat before it. Make it count: fill everything first, so the last click is the only ask.'),
     browser,
     api,
     stop: () => browser.close(),

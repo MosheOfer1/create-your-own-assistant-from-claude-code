@@ -86,8 +86,25 @@ const MOVE_KEY = /^((shift\+)?tab|escape|home|end|pageup|pagedown|arrow(up|down|
 
 // 'allow' | 'critical' for a browser step, from the agent's words, the current page URL and,
 // for a click, the element it really hits (elementInfo, when known).
-export function judge(tool, input = {}, pageUrl = '', el = null) {
+// ask: 'acts' (default) asks for every step that acts: a form's submit, Enter, send, book,
+// confirm... ask: 'money' (the owner's choice) asks only for what moves money, deletes,
+// publishes or sends a message; logins, forms, confirm and booking run freely, and the agent
+// asks the one question in the chat (the prompt says so).
+const MONEY = new RegExp([
+  '\\b(pay|buy|checkout|purchase|place order|transfer|donate|delete|trash|publish|post|share|invite|send(?!\\s*(me\\s*)?(a\\s*|the\\s*)?(code|otp|sms))',
+  'pagar|comprar|payer|acheter|bezahlen|kaufen|paga|acquista|betalen|kopen)\\b',
+  'תשלום|לתשלום|לשלם|קנ[הי]|רכיש|מחק|פרסם|העבר|שתף|שלח(?!ו?\\s*(לי\\s*)?(את\\s*ה)?(קוד|סיסמ))',
+  'ادفع|دفع|شراء|اشتر|حذف|نشر|оплат|купить|удалить|опубликовать',
+].join('|'), 'i');
+const SEND_KEY = /^(control|ctrl|meta|cmd)\+enter$|^delete$/i;
+
+export function judge(tool, input = {}, pageUrl = '', el = null, { ask = 'acts' } = {}) {
   if (CRITICAL_PAGE.test(pageUrl)) return 'critical';
+  if (ask === 'money') {
+    if (tool.endsWith('__press')) return SEND_KEY.test(String(input.key ?? '').trim()) ? 'critical' : 'allow';
+    if (!/__(click|type)$/.test(tool)) return 'critical';
+    return MONEY.test(`${input.target || ''} ${tool.endsWith('__click') ? el?.name || '' : ''}`) ? 'critical' : 'allow';
+  }
   if (tool.endsWith('__press')) return MOVE_KEY.test(String(input.key ?? '').trim()) ? 'allow' : 'critical';
   if (!/__(click|type)$/.test(tool)) return 'critical'; // select, upload, submit: always the owner
   const click = tool.endsWith('__click');

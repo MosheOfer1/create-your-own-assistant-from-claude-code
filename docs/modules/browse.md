@@ -32,6 +32,9 @@ profile that stays between runs. Logins stay too. One profile for each identity.
 ## Config keys (`modules.browse`)
 
 - `identity`: the profile name. Default `assistant`. The profile is `<dataDir>/browser/<identity>`.
+- `ask`: `acts` (default) or `money`. With `money`, logins, forms, confirm and booking steps run
+  freely; only paying, deleting, publishing and sending a message ask. The agent asks the one
+  question for a booking in the chat.
 - `browserPath`: a Chrome or Chromium program. Default: Playwright's Chromium.
 - `proxy`: for example `socks5://127.0.0.1:1080`.
 
